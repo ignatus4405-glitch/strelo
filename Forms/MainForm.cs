@@ -1,0 +1,1256 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Drawing;
+using System.Windows.Forms;
+using StreloReminder.Models;
+using StreloReminder.Services;
+
+namespace StreloReminder.Forms
+{
+    public class MainForm : Form
+    {
+        private readonly List<ReminderItem> _reminders = new List<ReminderItem>();
+        private readonly Dictionary<string, PopupNotificationForm> _activePopups = new Dictionary<string, PopupNotificationForm>();
+
+        private Timer _mainTimer;
+        private NotifyIcon _notifyIcon;
+        private ContextMenuStrip _trayMenu;
+        private ToolStripMenuItem _trayPauseItem;
+
+        // Элементы шапки
+        private Label _lblClock;
+        private CheckBox _chkDoNotDisturb;
+        private CheckBox _chkAutoStart;
+
+        // Элементы формы добавления / редактирования
+        private GroupBox _grpEditor;
+        private TextBox _txtTitle;
+        private TextBox _txtNotes;
+        private RadioButton _rbTimerMode;
+        private RadioButton _rbExactTimeMode;
+        private Panel _pnlTimerControls;
+        private NumericUpDown _numTimerHours;
+        private NumericUpDown _numTimerMinutes;
+        private Panel _pnlExactTimeControls;
+        private DateTimePicker _dtpDate;
+        private DateTimePicker _dtpTime;
+        private ComboBox _cmbRecurrence;
+        private Label _lblIntervalMinutes;
+        private NumericUpDown _numIntervalMinutes;
+        private ComboBox _cmbPriority;
+        private CheckBox _chkPlaySound;
+        private Button _btnSaveReminder;
+        private Button _btnCancelEdit;
+        private Button _btnTestPopup;
+
+        // Таблица напоминаний
+        private ListView _lvReminders;
+        private Label _lblSummary;
+
+        // Состояние
+        private string _editingReminderId;
+        private bool _isExiting;
+        private bool _isDoNotDisturb;
+        private bool _trayHintShown;
+        private readonly bool _startMinimized;
+
+        public MainForm(bool startMinimized = false)
+        {
+            _startMinimized = startMinimized;
+            InitializeComponent();
+            InitializeTrayIcon();
+            LoadSavedReminders();
+            StartScheduler();
+        }
+
+        private void InitializeComponent()
+        {
+            Text = "Strelo — Напоминалка для Windows";
+            Icon = IconGenerator.GetAppIcon(false);
+            Size = new Size(960, 680);
+            MinimumSize = new Size(880, 620);
+            StartPosition = FormStartPosition.CenterScreen;
+            BackColor = Color.FromArgb(241, 245, 249);
+            Font = new Font("Segoe UI", 9.25f, FontStyle.Regular);
+
+            // 1. ВЕРХНЯЯ ПАНЕЛЬ (ШАПКА)
+            Panel headerPanel = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 60,
+                BackColor = Color.FromArgb(30, 58, 138),
+                Padding = new Padding(18, 0, 18, 0)
+            };
+
+            Label lblAppTitle = new Label
+            {
+                Text = "🔔 Strelo Напоминалка",
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 14f, FontStyle.Bold),
+                AutoSize = true,
+                Location = new Point(18, 8)
+            };
+
+            _lblClock = new Label
+            {
+                Text = "Сейчас: " + DateTime.Now.ToString("dd.MM.yyyy HH:mm:ss"),
+                ForeColor = Color.FromArgb(191, 219, 254),
+                Font = new Font("Segoe UI", 9f, FontStyle.Regular),
+                AutoSize = true,
+                Location = new Point(20, 35)
+            };
+
+            _chkDoNotDisturb = new CheckBox
+            {
+                Text = "Режим «Не беспокоить» (пауза)",
+                ForeColor = Color.White,
+                BackColor = Color.Transparent,
+                Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+                AutoSize = true,
+                Location = new Point(470, 20),
+                Cursor = Cursors.Hand
+            };
+            _chkDoNotDisturb.CheckedChanged += OnDoNotDisturbChanged;
+
+            _chkAutoStart = new CheckBox
+            {
+                Text = "Автозапуск с Windows",
+                ForeColor = Color.FromArgb(219, 234, 254),
+                BackColor = Color.Transparent,
+                Font = new Font("Segoe UI", 9f, FontStyle.Regular),
+                AutoSize = true,
+                Location = new Point(730, 20),
+                Cursor = Cursors.Hand,
+                Checked = StorageService.IsAutoStartEnabled()
+            };
+            _chkAutoStart.CheckedChanged += OnAutoStartChanged;
+
+            headerPanel.Controls.Add(lblAppTitle);
+            headerPanel.Controls.Add(_lblClock);
+            headerPanel.Controls.Add(_chkDoNotDisturb);
+            headerPanel.Controls.Add(_chkAutoStart);
+
+            // 2. ПАНЕЛЬ СОЗДАНИЯ / РЕДАКТИРОВАНИЯ НАПОМИНАНИЯ
+            _grpEditor = new GroupBox
+            {
+                Text = " Новое напоминание ",
+                Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(30, 41, 59),
+                BackColor = Color.White,
+                Location = new Point(16, 72),
+                Size = new Size(912, 228),
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+            };
+
+            // Заголовок напоминания
+            Label lblTitle = new Label
+            {
+                Text = "О чём напомнить:",
+                Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+                Location = new Point(16, 26),
+                AutoSize = true
+            };
+
+            _txtTitle = new TextBox
+            {
+                Font = new Font("Segoe UI", 10.5f, FontStyle.Regular),
+                Location = new Point(16, 48),
+                Size = new Size(420, 27)
+            };
+
+            Label lblNotes = new Label
+            {
+                Text = "Дополнительное описание / заметка (необязательно):",
+                Font = new Font("Segoe UI", 9f, FontStyle.Regular),
+                ForeColor = Color.FromArgb(71, 85, 105),
+                Location = new Point(16, 82),
+                AutoSize = true
+            };
+
+            _txtNotes = new TextBox
+            {
+                Font = new Font("Segoe UI", 9.25f, FontStyle.Regular),
+                Location = new Point(16, 104),
+                Size = new Size(420, 56),
+                Multiline = true,
+                ScrollBars = ScrollBars.Vertical
+            };
+
+            // Режим выбора времени (Таймер или Точное время)
+            Label lblWhen = new Label
+            {
+                Text = "Когда сработать:",
+                Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+                Location = new Point(458, 26),
+                AutoSize = true
+            };
+
+            _rbTimerMode = new RadioButton
+            {
+                Text = "Через таймер",
+                Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(30, 64, 175),
+                Location = new Point(580, 24),
+                AutoSize = true,
+                Checked = true,
+                Cursor = Cursors.Hand
+            };
+            _rbTimerMode.CheckedChanged += OnTimeModeChanged;
+
+            _rbExactTimeMode = new RadioButton
+            {
+                Text = "В точное время и дату",
+                Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(30, 64, 175),
+                Location = new Point(710, 24),
+                AutoSize = true,
+                Cursor = Cursors.Hand
+            };
+            _rbExactTimeMode.CheckedChanged += OnTimeModeChanged;
+
+            // Панель настройки таймера («Через N ч. M мин.» + быстрые кнопки)
+            _pnlTimerControls = new Panel
+            {
+                Location = new Point(458, 48),
+                Size = new Size(438, 66),
+                BackColor = Color.FromArgb(248, 250, 252),
+                BorderStyle = BorderStyle.FixedSingle
+            };
+
+            Label lblIn = new Label
+            {
+                Text = "Через:",
+                Font = new Font("Segoe UI", 9f, FontStyle.Regular),
+                Location = new Point(10, 9),
+                AutoSize = true
+            };
+
+            _numTimerHours = new NumericUpDown
+            {
+                Minimum = 0,
+                Maximum = 168,
+                Value = 0,
+                Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+                Location = new Point(62, 6),
+                Size = new Size(52, 25)
+            };
+
+            Label lblHours = new Label
+            {
+                Text = "ч.",
+                Font = new Font("Segoe UI", 9f, FontStyle.Regular),
+                Location = new Point(118, 9),
+                AutoSize = true
+            };
+
+            _numTimerMinutes = new NumericUpDown
+            {
+                Minimum = 0,
+                Maximum = 1440,
+                Value = 15,
+                Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+                Location = new Point(142, 6),
+                Size = new Size(60, 25)
+            };
+
+            Label lblMins = new Label
+            {
+                Text = "мин.",
+                Font = new Font("Segoe UI", 9f, FontStyle.Regular),
+                Location = new Point(206, 9),
+                AutoSize = true
+            };
+
+            // Быстрые кнопки установки таймера
+            int[] presetMinutes = new int[] { 5, 10, 15, 30, 60, 120 };
+            string[] presetLabels = new string[] { "5 мин", "10 мин", "15 мин", "30 мин", "1 час", "2 часа" };
+            int presetX = 10;
+            for (int i = 0; i < presetMinutes.Length; i++)
+            {
+                int totalMins = presetMinutes[i];
+                Button btnPreset = new Button
+                {
+                    Text = presetLabels[i],
+                    Font = new Font("Segoe UI", 8.25f, FontStyle.Regular),
+                    Location = new Point(presetX, 36),
+                    Size = new Size(66, 24),
+                    FlatStyle = FlatStyle.Flat,
+                    BackColor = Color.FromArgb(226, 232, 240),
+                    ForeColor = Color.FromArgb(30, 41, 59),
+                    Cursor = Cursors.Hand
+                };
+                btnPreset.FlatAppearance.BorderColor = Color.FromArgb(203, 213, 225);
+                btnPreset.Click += delegate
+                {
+                    _numTimerHours.Value = totalMins / 60;
+                    _numTimerMinutes.Value = totalMins % 60;
+                };
+                _pnlTimerControls.Controls.Add(btnPreset);
+                presetX += 70;
+            }
+
+            _pnlTimerControls.Controls.Add(lblIn);
+            _pnlTimerControls.Controls.Add(_numTimerHours);
+            _pnlTimerControls.Controls.Add(lblHours);
+            _pnlTimerControls.Controls.Add(_numTimerMinutes);
+            _pnlTimerControls.Controls.Add(lblMins);
+
+            // Панель точной даты и времени
+            _pnlExactTimeControls = new Panel
+            {
+                Location = new Point(458, 48),
+                Size = new Size(438, 66),
+                BackColor = Color.FromArgb(248, 250, 252),
+                BorderStyle = BorderStyle.FixedSingle,
+                Visible = false
+            };
+
+            Label lblDate = new Label
+            {
+                Text = "Дата:",
+                Font = new Font("Segoe UI", 9f, FontStyle.Regular),
+                Location = new Point(10, 10),
+                AutoSize = true
+            };
+
+            _dtpDate = new DateTimePicker
+            {
+                Format = DateTimePickerFormat.Short,
+                Font = new Font("Segoe UI", 9.5f, FontStyle.Regular),
+                Location = new Point(54, 7),
+                Size = new Size(125, 25),
+                Value = DateTime.Now.Date
+            };
+
+            Label lblTime = new Label
+            {
+                Text = "Время:",
+                Font = new Font("Segoe UI", 9f, FontStyle.Regular),
+                Location = new Point(195, 10),
+                AutoSize = true
+            };
+
+            _dtpTime = new DateTimePicker
+            {
+                Format = DateTimePickerFormat.Time,
+                ShowUpDown = true,
+                Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+                Location = new Point(248, 7),
+                Size = new Size(115, 25),
+                Value = DateTime.Now.AddMinutes(15)
+            };
+
+            Button btnTomorrowMorning = new Button
+            {
+                Text = "Завтра в 09:00",
+                Font = new Font("Segoe UI", 8.25f, FontStyle.Regular),
+                Location = new Point(10, 36),
+                Size = new Size(120, 24),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(226, 232, 240),
+                Cursor = Cursors.Hand
+            };
+            btnTomorrowMorning.FlatAppearance.BorderColor = Color.FromArgb(203, 213, 225);
+            btnTomorrowMorning.Click += delegate
+            {
+                DateTime tomorrow = DateTime.Now.Date.AddDays(1);
+                _dtpDate.Value = tomorrow;
+                _dtpTime.Value = tomorrow.AddHours(9);
+            };
+
+            Button btnTodayEvening = new Button
+            {
+                Text = "Сегодня в 18:00",
+                Font = new Font("Segoe UI", 8.25f, FontStyle.Regular),
+                Location = new Point(138, 36),
+                Size = new Size(120, 24),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(226, 232, 240),
+                Cursor = Cursors.Hand
+            };
+            btnTodayEvening.FlatAppearance.BorderColor = Color.FromArgb(203, 213, 225);
+            btnTodayEvening.Click += delegate
+            {
+                DateTime today = DateTime.Now.Date;
+                _dtpDate.Value = today;
+                _dtpTime.Value = today.AddHours(18);
+            };
+
+            _pnlExactTimeControls.Controls.Add(lblDate);
+            _pnlExactTimeControls.Controls.Add(_dtpDate);
+            _pnlExactTimeControls.Controls.Add(lblTime);
+            _pnlExactTimeControls.Controls.Add(_dtpTime);
+            _pnlExactTimeControls.Controls.Add(btnTomorrowMorning);
+            _pnlExactTimeControls.Controls.Add(btnTodayEvening);
+
+            // Повтор и важность
+            Label lblRecurrence = new Label
+            {
+                Text = "Повтор:",
+                Font = new Font("Segoe UI", 9f, FontStyle.Regular),
+                Location = new Point(458, 125),
+                AutoSize = true
+            };
+
+            _cmbRecurrence = new ComboBox
+            {
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Font = new Font("Segoe UI", 9f, FontStyle.Regular),
+                Location = new Point(518, 121),
+                Size = new Size(175, 25)
+            };
+            _cmbRecurrence.Items.AddRange(new object[]
+            {
+                "Один раз (без повтора)",
+                "Каждые N минут",
+                "Ежедневно",
+                "По будням (Пн–Пт)",
+                "Еженедельно"
+            });
+            _cmbRecurrence.SelectedIndex = 0;
+            _cmbRecurrence.SelectedIndexChanged += OnRecurrenceChanged;
+
+            _lblIntervalMinutes = new Label
+            {
+                Text = "Интервал (мин):",
+                Font = new Font("Segoe UI", 8.75f, FontStyle.Regular),
+                Location = new Point(704, 125),
+                AutoSize = true,
+                Visible = false
+            };
+
+            _numIntervalMinutes = new NumericUpDown
+            {
+                Minimum = 1,
+                Maximum = 1440,
+                Value = 30,
+                Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+                Location = new Point(808, 121),
+                Size = new Size(65, 25),
+                Visible = false
+            };
+
+            Label lblPriority = new Label
+            {
+                Text = "Важность:",
+                Font = new Font("Segoe UI", 9f, FontStyle.Regular),
+                Location = new Point(458, 156),
+                AutoSize = true
+            };
+
+            _cmbPriority = new ComboBox
+            {
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Font = new Font("Segoe UI", 9f, FontStyle.Regular),
+                Location = new Point(528, 152),
+                Size = new Size(165, 25)
+            };
+            _cmbPriority.Items.AddRange(new object[]
+            {
+                "Обычное",
+                "Важное (!)"
+            });
+            _cmbPriority.SelectedIndex = 0;
+
+            _chkPlaySound = new CheckBox
+            {
+                Text = "Звуковой сигнал",
+                Font = new Font("Segoe UI", 9f, FontStyle.Regular),
+                Location = new Point(710, 154),
+                AutoSize = true,
+                Checked = true,
+                Cursor = Cursors.Hand
+            };
+
+            // Кнопки добавления / сохранения / теста
+            _btnSaveReminder = new Button
+            {
+                Text = "➕  Добавить напоминание",
+                Font = new Font("Segoe UI", 10f, FontStyle.Bold),
+                Location = new Point(16, 174),
+                Size = new Size(260, 40),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(37, 99, 235),
+                ForeColor = Color.White,
+                Cursor = Cursors.Hand
+            };
+            _btnSaveReminder.FlatAppearance.BorderSize = 0;
+            _btnSaveReminder.Click += OnSaveReminderClick;
+
+            _btnCancelEdit = new Button
+            {
+                Text = "Отмена",
+                Font = new Font("Segoe UI", 9f, FontStyle.Regular),
+                Location = new Point(284, 174),
+                Size = new Size(95, 40),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(226, 232, 240),
+                ForeColor = Color.FromArgb(51, 65, 85),
+                Cursor = Cursors.Hand,
+                Visible = false
+            };
+            _btnCancelEdit.FlatAppearance.BorderColor = Color.FromArgb(203, 213, 225);
+            _btnCancelEdit.Click += delegate { ResetEditor(); };
+
+            _btnTestPopup = new Button
+            {
+                Text = "🔔 Проверить всплывающее окно",
+                Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+                Location = new Point(458, 180),
+                Size = new Size(245, 34),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(238, 242, 255),
+                ForeColor = Color.FromArgb(30, 64, 175),
+                Cursor = Cursors.Hand
+            };
+            _btnTestPopup.FlatAppearance.BorderColor = Color.FromArgb(165, 180, 252);
+            _btnTestPopup.Click += OnTestPopupClick;
+
+            Button btnMinimizeToTray = new Button
+            {
+                Text = "⬇ Свернуть в трей",
+                Font = new Font("Segoe UI", 9f, FontStyle.Regular),
+                Location = new Point(715, 180),
+                Size = new Size(181, 34),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(241, 245, 249),
+                ForeColor = Color.FromArgb(51, 65, 85),
+                Cursor = Cursors.Hand
+            };
+            btnMinimizeToTray.FlatAppearance.BorderColor = Color.FromArgb(203, 213, 225);
+            btnMinimizeToTray.Click += delegate { HideToTray(); };
+
+            _grpEditor.Controls.Add(lblTitle);
+            _grpEditor.Controls.Add(_txtTitle);
+            _grpEditor.Controls.Add(lblNotes);
+            _grpEditor.Controls.Add(_txtNotes);
+            _grpEditor.Controls.Add(lblWhen);
+            _grpEditor.Controls.Add(_rbTimerMode);
+            _grpEditor.Controls.Add(_rbExactTimeMode);
+            _grpEditor.Controls.Add(_pnlTimerControls);
+            _grpEditor.Controls.Add(_pnlExactTimeControls);
+            _grpEditor.Controls.Add(lblRecurrence);
+            _grpEditor.Controls.Add(_cmbRecurrence);
+            _grpEditor.Controls.Add(_lblIntervalMinutes);
+            _grpEditor.Controls.Add(_numIntervalMinutes);
+            _grpEditor.Controls.Add(lblPriority);
+            _grpEditor.Controls.Add(_cmbPriority);
+            _grpEditor.Controls.Add(_chkPlaySound);
+            _grpEditor.Controls.Add(_btnSaveReminder);
+            _grpEditor.Controls.Add(_btnCancelEdit);
+            _grpEditor.Controls.Add(_btnTestPopup);
+            _grpEditor.Controls.Add(btnMinimizeToTray);
+
+            // 3. ПАНЕЛЬ УПРАВЛЕНИЯ СПИСКОМ НАПОМИНАНИЙ
+            Panel listToolbar = new Panel
+            {
+                Location = new Point(16, 308),
+                Size = new Size(912, 38),
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                BackColor = Color.Transparent
+            };
+
+            _lblSummary = new Label
+            {
+                Text = "Список напоминаний (0)",
+                Font = new Font("Segoe UI", 10f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(30, 41, 59),
+                Location = new Point(2, 9),
+                AutoSize = true
+            };
+
+            Button btnEdit = CreateToolbarButton("✏ Изменить", 250, Color.FromArgb(226, 232, 240), Color.FromArgb(30, 41, 59));
+            btnEdit.Click += OnEditSelectedClick;
+
+            Button btnToggle = CreateToolbarButton("⏯ Вкл / Выкл", 360, Color.FromArgb(226, 232, 240), Color.FromArgb(30, 41, 59));
+            btnToggle.Click += OnToggleSelectedClick;
+
+            Button btnSnooze10 = CreateToolbarButton("⏰ +10 мин", 478, Color.FromArgb(219, 234, 254), Color.FromArgb(30, 64, 175));
+            btnSnooze10.Click += OnSnooze10SelectedClick;
+
+            Button btnDelete = CreateToolbarButton("🗑 Удалить", 588, Color.FromArgb(254, 226, 226), Color.FromArgb(185, 28, 28));
+            btnDelete.Click += OnDeleteSelectedClick;
+
+            Button btnClearDone = CreateToolbarButton("🧹 Очистить выполненные", 698, Color.FromArgb(226, 232, 240), Color.FromArgb(51, 65, 85), 155);
+            btnClearDone.Click += OnClearCompletedClick;
+
+            Button btnOpenFolder = CreateToolbarButton("📂", 860, Color.FromArgb(226, 232, 240), Color.FromArgb(51, 65, 85), 50);
+            btnOpenFolder.Click += OnOpenStorageFolderClick;
+
+            listToolbar.Controls.Add(_lblSummary);
+            listToolbar.Controls.Add(btnEdit);
+            listToolbar.Controls.Add(btnToggle);
+            listToolbar.Controls.Add(btnSnooze10);
+            listToolbar.Controls.Add(btnDelete);
+            listToolbar.Controls.Add(btnClearDone);
+            listToolbar.Controls.Add(btnOpenFolder);
+
+            // 4. ТАБЛИЦА НАПОМИНАНИЙ
+            _lvReminders = new ListView
+            {
+                Location = new Point(16, 350),
+                Size = new Size(912, 272),
+                Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
+                View = View.Details,
+                FullRowSelect = true,
+                GridLines = true,
+                MultiSelect = false,
+                HideSelection = false,
+                BackColor = Color.White,
+                Font = new Font("Segoe UI", 9.5f, FontStyle.Regular)
+            };
+
+            _lvReminders.Columns.Add("Статус", 115);
+            _lvReminders.Columns.Add("Текст напоминания", 245);
+            _lvReminders.Columns.Add("Время срабатывания", 145);
+            _lvReminders.Columns.Add("Осталось", 130);
+            _lvReminders.Columns.Add("Повтор", 130);
+            _lvReminders.Columns.Add("Описание / Заметка", 135);
+
+            _lvReminders.DoubleClick += OnEditSelectedClick;
+
+            Controls.Add(headerPanel);
+            Controls.Add(_grpEditor);
+            Controls.Add(listToolbar);
+            Controls.Add(_lvReminders);
+        }
+
+        private Button CreateToolbarButton(string text, int x, Color backColor, Color foreColor, int width = 102)
+        {
+            Button btn = new Button
+            {
+                Text = text,
+                Location = new Point(x, 4),
+                Size = new Size(width, 30),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = backColor,
+                ForeColor = foreColor,
+                Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
+                Cursor = Cursors.Hand
+            };
+            btn.FlatAppearance.BorderColor = Color.FromArgb(203, 213, 225);
+            return btn;
+        }
+
+        private void InitializeTrayIcon()
+        {
+            _trayMenu = new ContextMenuStrip();
+
+            ToolStripMenuItem openItem = new ToolStripMenuItem("Открыть Напоминалку");
+            openItem.Font = new Font(openItem.Font, FontStyle.Bold);
+            openItem.Click += delegate { RestoreFromTray(); };
+
+            ToolStripMenuItem quick5Item = new ToolStripMenuItem("Быстрое напоминание через 5 мин");
+            quick5Item.Click += delegate { CreateQuickReminder(5); };
+
+            ToolStripMenuItem quick15Item = new ToolStripMenuItem("Быстрое напоминание через 15 мин");
+            quick15Item.Click += delegate { CreateQuickReminder(15); };
+
+            ToolStripMenuItem quick30Item = new ToolStripMenuItem("Быстрое напоминание через 30 мин");
+            quick30Item.Click += delegate { CreateQuickReminder(30); };
+
+            _trayPauseItem = new ToolStripMenuItem("Режим «Не беспокоить» (Пауза)");
+            _trayPauseItem.CheckOnClick = true;
+            _trayPauseItem.CheckedChanged += delegate
+            {
+                _chkDoNotDisturb.Checked = _trayPauseItem.Checked;
+            };
+
+            ToolStripMenuItem exitItem = new ToolStripMenuItem("Выход из программы");
+            exitItem.Click += delegate { ExitApplication(); };
+
+            _trayMenu.Items.Add(openItem);
+            _trayMenu.Items.Add(new ToolStripSeparator());
+            _trayMenu.Items.Add(quick5Item);
+            _trayMenu.Items.Add(quick15Item);
+            _trayMenu.Items.Add(quick30Item);
+            _trayMenu.Items.Add(new ToolStripSeparator());
+            _trayMenu.Items.Add(_trayPauseItem);
+            _trayMenu.Items.Add(new ToolStripSeparator());
+            _trayMenu.Items.Add(exitItem);
+
+            _notifyIcon = new NotifyIcon
+            {
+                Icon = IconGenerator.GetAppIcon(false),
+                Text = "Strelo — Напоминалка для Windows",
+                ContextMenuStrip = _trayMenu,
+                Visible = true
+            };
+            _notifyIcon.DoubleClick += delegate { RestoreFromTray(); };
+        }
+
+        private void LoadSavedReminders()
+        {
+            _reminders.Clear();
+            List<ReminderItem> loaded = StorageService.LoadReminders();
+            _reminders.AddRange(loaded);
+            RefreshListView();
+        }
+
+        private void StartScheduler()
+        {
+            _mainTimer = new Timer
+            {
+                Interval = 1000
+            };
+            _mainTimer.Tick += OnMainTimerTick;
+            _mainTimer.Start();
+        }
+
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            if (_startMinimized)
+            {
+                HideToTray();
+            }
+        }
+
+        private void OnMainTimerTick(object sender, EventArgs e)
+        {
+            DateTime now = DateTime.Now;
+            _lblClock.Text = "Сейчас: " + now.ToString("dd.MM.yyyy HH:mm:ss");
+
+            // Проверяем, какие напоминания пора показать
+            if (!_isDoNotDisturb)
+            {
+                for (int i = 0; i < _reminders.Count; i++)
+                {
+                    ReminderItem item = _reminders[i];
+                    if (item.IsEnabled && !item.IsCompleted && !item.IsPopupOpen && item.TriggerTime <= now)
+                    {
+                        ShowPopupForReminder(item);
+                    }
+                }
+            }
+
+            UpdateListViewCountdowns(now);
+        }
+
+        private void ShowPopupForReminder(ReminderItem item)
+        {
+            if (_activePopups.ContainsKey(item.Id))
+                return;
+
+            item.IsPopupOpen = true;
+            RefreshListView();
+
+            PopupNotificationForm popup = new PopupNotificationForm(item, OnPopupResolved);
+            _activePopups[item.Id] = popup;
+            popup.Show();
+        }
+
+        private void OnPopupResolved(ReminderItem item, PopupResultAction action, int snoozeMinutes)
+        {
+            item.IsPopupOpen = false;
+            if (_activePopups.ContainsKey(item.Id))
+            {
+                _activePopups.Remove(item.Id);
+            }
+
+            if (action == PopupResultAction.Snoozed)
+            {
+                item.Snooze(snoozeMinutes);
+            }
+            else
+            {
+                item.AdvanceAfterComplete(DateTime.Now);
+            }
+
+            StorageService.SaveReminders(_reminders);
+            RefreshListView();
+        }
+
+        private void OnTimeModeChanged(object sender, EventArgs e)
+        {
+            bool isTimer = _rbTimerMode.Checked;
+            _pnlTimerControls.Visible = isTimer;
+            _pnlExactTimeControls.Visible = !isTimer;
+        }
+
+        private void OnRecurrenceChanged(object sender, EventArgs e)
+        {
+            bool isInterval = _cmbRecurrence.SelectedIndex == (int)RecurrenceType.EveryMinutes;
+            _lblIntervalMinutes.Visible = isInterval;
+            _numIntervalMinutes.Visible = isInterval;
+        }
+
+        private void OnSaveReminderClick(object sender, EventArgs e)
+        {
+            string title = _txtTitle.Text.Trim();
+            if (string.IsNullOrEmpty(title))
+            {
+                MessageBox.Show(
+                    "Пожалуйста, введите текст напоминания.",
+                    "Внимание",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                _txtTitle.Focus();
+                return;
+            }
+
+            DateTime triggerTime;
+            if (_rbTimerMode.Checked)
+            {
+                int hours = (int)_numTimerHours.Value;
+                int mins = (int)_numTimerMinutes.Value;
+                if (hours == 0 && mins == 0)
+                {
+                    mins = 1;
+                }
+                triggerTime = DateTime.Now.AddHours(hours).AddMinutes(mins);
+            }
+            else
+            {
+                DateTime d = _dtpDate.Value.Date;
+                DateTime t = _dtpTime.Value;
+                triggerTime = new DateTime(d.Year, d.Month, d.Day, t.Hour, t.Minute, t.Second);
+
+                if (triggerTime <= DateTime.Now)
+                {
+                    DialogResult confirmPast = MessageBox.Show(
+                        "Указанное время уже прошло. Сработать прямо сейчас?\n\n(Нажмите «Нет», чтобы перенести на завтра в это же время)",
+                        "Время в прошлом",
+                        MessageBoxButtons.YesNoCancel,
+                        MessageBoxIcon.Question);
+
+                    if (confirmPast == DialogResult.Cancel)
+                        return;
+                    if (confirmPast == DialogResult.No)
+                        triggerTime = triggerTime.AddDays(1);
+                }
+            }
+
+            ReminderItem target = null;
+            if (!string.IsNullOrEmpty(_editingReminderId))
+            {
+                target = FindReminderById(_editingReminderId);
+            }
+
+            bool isNew = target == null;
+            if (isNew)
+            {
+                target = new ReminderItem();
+            }
+
+            target.Title = title;
+            target.Notes = _txtNotes.Text.Trim();
+            target.TriggerTime = triggerTime;
+            target.Recurrence = (RecurrenceType)_cmbRecurrence.SelectedIndex;
+            target.IntervalMinutes = (int)_numIntervalMinutes.Value;
+            target.Priority = (ReminderPriority)_cmbPriority.SelectedIndex;
+            target.PlaySound = _chkPlaySound.Checked;
+            target.IsEnabled = true;
+            target.IsCompleted = false;
+
+            if (isNew)
+            {
+                _reminders.Add(target);
+            }
+
+            StorageService.SaveReminders(_reminders);
+            ResetEditor();
+            RefreshListView();
+        }
+
+        private void ResetEditor()
+        {
+            _editingReminderId = null;
+            _grpEditor.Text = " Новое напоминание ";
+            _txtTitle.Text = string.Empty;
+            _txtNotes.Text = string.Empty;
+            _rbTimerMode.Checked = true;
+            _numTimerHours.Value = 0;
+            _numTimerMinutes.Value = 15;
+            _dtpDate.Value = DateTime.Now.Date;
+            _dtpTime.Value = DateTime.Now.AddMinutes(15);
+            _cmbRecurrence.SelectedIndex = 0;
+            _numIntervalMinutes.Value = 30;
+            _cmbPriority.SelectedIndex = 0;
+            _chkPlaySound.Checked = true;
+            _btnSaveReminder.Text = "➕  Добавить напоминание";
+            _btnSaveReminder.BackColor = Color.FromArgb(37, 99, 235);
+            _btnCancelEdit.Visible = false;
+        }
+
+        private void OnTestPopupClick(object sender, EventArgs e)
+        {
+            ReminderItem demo = new ReminderItem
+            {
+                Title = string.IsNullOrWhiteSpace(_txtTitle.Text)
+                    ? "Пример напоминания: Сделать перерыв и размяться!"
+                    : _txtTitle.Text.Trim(),
+                Notes = string.IsNullOrWhiteSpace(_txtNotes.Text)
+                    ? "Это демонстрационное всплывающее окно поверх всех окон. Вы можете отложить его или нажать «Понятно»."
+                    : _txtNotes.Text.Trim(),
+                TriggerTime = DateTime.Now,
+                Recurrence = (RecurrenceType)_cmbRecurrence.SelectedIndex,
+                IntervalMinutes = (int)_numIntervalMinutes.Value,
+                Priority = (ReminderPriority)_cmbPriority.SelectedIndex,
+                PlaySound = _chkPlaySound.Checked
+            };
+
+            PopupNotificationForm testForm = new PopupNotificationForm(demo, null);
+            testForm.Show();
+        }
+
+        private void CreateQuickReminder(int minutes)
+        {
+            ReminderItem quick = new ReminderItem
+            {
+                Title = string.Format("Быстрое напоминание ({0} мин)", minutes),
+                Notes = "Создано из меню системного трея.",
+                TriggerTime = DateTime.Now.AddMinutes(minutes),
+                Recurrence = RecurrenceType.None,
+                Priority = ReminderPriority.Normal,
+                PlaySound = true,
+                IsEnabled = true
+            };
+
+            _reminders.Add(quick);
+            StorageService.SaveReminders(_reminders);
+            RefreshListView();
+
+            _notifyIcon.ShowBalloonTip(
+                2500,
+                "Напоминание добавлено",
+                string.Format("Сработает через {0} мин ({1:HH:mm}).", minutes, quick.TriggerTime),
+                ToolTipIcon.Info);
+        }
+
+        private ReminderItem GetSelectedReminder()
+        {
+            if (_lvReminders.SelectedItems.Count == 0)
+                return null;
+
+            string id = _lvReminders.SelectedItems[0].Tag as string;
+            return FindReminderById(id);
+        }
+
+        private ReminderItem FindReminderById(string id)
+        {
+            if (string.IsNullOrEmpty(id))
+                return null;
+
+            for (int i = 0; i < _reminders.Count; i++)
+            {
+                if (_reminders[i].Id == id)
+                    return _reminders[i];
+            }
+            return null;
+        }
+
+        private void OnEditSelectedClick(object sender, EventArgs e)
+        {
+            ReminderItem item = GetSelectedReminder();
+            if (item == null)
+            {
+                MessageBox.Show("Выберите напоминание в таблице для редактирования.", "Информация", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            _editingReminderId = item.Id;
+            _grpEditor.Text = " Редактирование напоминания ";
+            _txtTitle.Text = item.Title;
+            _txtNotes.Text = item.Notes;
+            _rbExactTimeMode.Checked = true;
+
+            DateTime trigger = item.TriggerTime < new DateTime(2000, 1, 1) ? DateTime.Now : item.TriggerTime;
+            _dtpDate.Value = trigger.Date;
+            _dtpTime.Value = trigger;
+
+            _cmbRecurrence.SelectedIndex = (int)item.Recurrence;
+            _numIntervalMinutes.Value = Math.Max(1, Math.Min(1440, item.IntervalMinutes));
+            _cmbPriority.SelectedIndex = (int)item.Priority;
+            _chkPlaySound.Checked = item.PlaySound;
+
+            _btnSaveReminder.Text = "💾  Сохранить изменения";
+            _btnSaveReminder.BackColor = Color.FromArgb(22, 163, 74);
+            _btnCancelEdit.Visible = true;
+            _txtTitle.Focus();
+        }
+
+        private void OnToggleSelectedClick(object sender, EventArgs e)
+        {
+            ReminderItem item = GetSelectedReminder();
+            if (item == null) return;
+
+            if (item.IsCompleted)
+            {
+                // Повторный запуск выполненного напоминания через 15 минут
+                item.IsCompleted = false;
+                item.IsEnabled = true;
+                if (item.TriggerTime <= DateTime.Now)
+                {
+                    item.TriggerTime = DateTime.Now.AddMinutes(15);
+                }
+            }
+            else
+            {
+                item.IsEnabled = !item.IsEnabled;
+            }
+
+            StorageService.SaveReminders(_reminders);
+            RefreshListView();
+        }
+
+        private void OnSnooze10SelectedClick(object sender, EventArgs e)
+        {
+            ReminderItem item = GetSelectedReminder();
+            if (item == null) return;
+
+            item.Snooze(10);
+            StorageService.SaveReminders(_reminders);
+            RefreshListView();
+        }
+
+        private void OnDeleteSelectedClick(object sender, EventArgs e)
+        {
+            ReminderItem item = GetSelectedReminder();
+            if (item == null) return;
+
+            DialogResult res = MessageBox.Show(
+                string.Format("Удалить напоминание «{0}»?", item.Title),
+                "Подтверждение удаления",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question);
+
+            if (res == DialogResult.Yes)
+            {
+                _reminders.Remove(item);
+                if (_editingReminderId == item.Id)
+                {
+                    ResetEditor();
+                }
+                StorageService.SaveReminders(_reminders);
+                RefreshListView();
+            }
+        }
+
+        private void OnClearCompletedClick(object sender, EventArgs e)
+        {
+            int removed = _reminders.RemoveAll(delegate(ReminderItem r) { return r.IsCompleted; });
+            if (removed > 0)
+            {
+                StorageService.SaveReminders(_reminders);
+                RefreshListView();
+            }
+        }
+
+        private void OnOpenStorageFolderClick(object sender, EventArgs e)
+        {
+            try
+            {
+                Process.Start("explorer.exe", StorageService.GetStorageDirectory());
+            }
+            catch
+            {
+            }
+        }
+
+        private void OnDoNotDisturbChanged(object sender, EventArgs e)
+        {
+            _isDoNotDisturb = _chkDoNotDisturb.Checked;
+            if (_trayPauseItem.Checked != _isDoNotDisturb)
+            {
+                _trayPauseItem.Checked = _isDoNotDisturb;
+            }
+
+            Icon icon = IconGenerator.GetAppIcon(_isDoNotDisturb);
+            Icon = icon;
+            _notifyIcon.Icon = icon;
+            _notifyIcon.Text = _isDoNotDisturb
+                ? "Strelo — Напоминалка (Режим «Не беспокоить»)"
+                : "Strelo — Напоминалка для Windows";
+        }
+
+        private void OnAutoStartChanged(object sender, EventArgs e)
+        {
+            StorageService.SetAutoStart(_chkAutoStart.Checked);
+        }
+
+        private void RefreshListView()
+        {
+            string selectedId = null;
+            if (_lvReminders.SelectedItems.Count > 0)
+            {
+                selectedId = _lvReminders.SelectedItems[0].Tag as string;
+            }
+
+            // Сортируем: сначала активные по времени срабатывания, затем выполненные/отключенные
+            _reminders.Sort(CompareReminders);
+
+            _lvReminders.BeginUpdate();
+            _lvReminders.Items.Clear();
+
+            DateTime now = DateTime.Now;
+            int activeCount = 0;
+
+            for (int i = 0; i < _reminders.Count; i++)
+            {
+                ReminderItem r = _reminders[i];
+                if (r.IsEnabled && !r.IsCompleted)
+                {
+                    activeCount++;
+                }
+
+                string statusText = GetStatusText(r);
+                ListViewItem lvi = new ListViewItem(statusText);
+                lvi.Tag = r.Id;
+                lvi.SubItems.Add(r.Title);
+                lvi.SubItems.Add(r.TriggerTime.ToString("dd.MM.yyyy HH:mm:ss"));
+                lvi.SubItems.Add(r.GetRemainingTimeText(now));
+                lvi.SubItems.Add(r.GetRecurrenceDisplayText());
+                lvi.SubItems.Add(r.Notes);
+
+                ApplyRowStyling(lvi, r);
+
+                if (selectedId != null && r.Id == selectedId)
+                {
+                    lvi.Selected = true;
+                }
+
+                _lvReminders.Items.Add(lvi);
+            }
+
+            _lvReminders.EndUpdate();
+
+            _lblSummary.Text = string.Format("Список напоминаний (Всего: {0}, Активных: {1})",
+                _reminders.Count, activeCount);
+        }
+
+        private void UpdateListViewCountdowns(DateTime now)
+        {
+            for (int i = 0; i < _lvReminders.Items.Count; i++)
+            {
+                ListViewItem lvi = _lvReminders.Items[i];
+                string id = lvi.Tag as string;
+                ReminderItem r = FindReminderById(id);
+                if (r != null && lvi.SubItems.Count >= 4)
+                {
+                    string newRemaining = r.GetRemainingTimeText(now);
+                    if (lvi.SubItems[3].Text != newRemaining)
+                    {
+                        lvi.SubItems[3].Text = newRemaining;
+                    }
+                    string newStatus = GetStatusText(r);
+                    if (lvi.SubItems[0].Text != newStatus)
+                    {
+                        lvi.SubItems[0].Text = newStatus;
+                        ApplyRowStyling(lvi, r);
+                    }
+                }
+            }
+        }
+
+        private static string GetStatusText(ReminderItem r)
+        {
+            if (r.IsPopupOpen)
+                return "🔔 Сработало!";
+            if (r.IsCompleted)
+                return "✓ Выполнено";
+            if (!r.IsEnabled)
+                return "⏸ Пауза";
+            if (r.Priority == ReminderPriority.High)
+                return "⚡ Важное";
+            return "🟢 Активно";
+        }
+
+        private static void ApplyRowStyling(ListViewItem lvi, ReminderItem r)
+        {
+            if (r.IsPopupOpen)
+            {
+                lvi.BackColor = Color.FromArgb(254, 243, 199);
+                lvi.ForeColor = Color.FromArgb(146, 64, 14);
+            }
+            else if (r.IsCompleted)
+            {
+                lvi.BackColor = Color.FromArgb(248, 250, 252);
+                lvi.ForeColor = Color.FromArgb(148, 163, 184);
+            }
+            else if (!r.IsEnabled)
+            {
+                lvi.BackColor = Color.FromArgb(241, 245, 249);
+                lvi.ForeColor = Color.FromArgb(100, 116, 139);
+            }
+            else if (r.Priority == ReminderPriority.High)
+            {
+                lvi.BackColor = Color.FromArgb(254, 242, 242);
+                lvi.ForeColor = Color.FromArgb(153, 27, 27);
+            }
+            else
+            {
+                lvi.BackColor = Color.White;
+                lvi.ForeColor = Color.FromArgb(15, 23, 42);
+            }
+        }
+
+        private static int CompareReminders(ReminderItem a, ReminderItem b)
+        {
+            bool aActive = a.IsEnabled && !a.IsCompleted;
+            bool bActive = b.IsEnabled && !b.IsCompleted;
+            if (aActive != bActive)
+            {
+                return aActive ? -1 : 1;
+            }
+            return a.TriggerTime.CompareTo(b.TriggerTime);
+        }
+
+        private void HideToTray()
+        {
+            Hide();
+            ShowInTaskbar = false;
+
+            if (!_trayHintShown)
+            {
+                _trayHintShown = true;
+                _notifyIcon.ShowBalloonTip(
+                    3000,
+                    "Напоминалка работает в фоне",
+                    "Программа свёрнута в системный трей и вовремя покажет всплывающее окно напоминания.",
+                    ToolTipIcon.Info);
+            }
+        }
+
+        private void RestoreFromTray()
+        {
+            ShowInTaskbar = true;
+            Show();
+            WindowState = FormWindowState.Normal;
+            BringToFront();
+            Activate();
+        }
+
+        private void ExitApplication()
+        {
+            _isExiting = true;
+            _mainTimer.Stop();
+            StorageService.SaveReminders(_reminders);
+            if (_notifyIcon != null)
+            {
+                _notifyIcon.Visible = false;
+                _notifyIcon.Dispose();
+            }
+            Application.Exit();
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            // При закрытии окна крестиком сворачиваем программу в трей, чтобы напоминания не пропали
+            if (!_isExiting && e.CloseReason == CloseReason.UserClosing)
+            {
+                e.Cancel = true;
+                HideToTray();
+                return;
+            }
+
+            StorageService.SaveReminders(_reminders);
+            if (_notifyIcon != null)
+            {
+                _notifyIcon.Visible = false;
+            }
+            base.OnFormClosing(e);
+        }
+    }
+}

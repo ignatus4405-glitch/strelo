@@ -1,0 +1,86 @@
+name: Windows Build & Artifacts
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build StreloReminder (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build standalone .NET Framework EXE (built-in Windows csc.exe)
+        shell: pwsh
+        run: |
+          $csc = "$env:SystemRoot\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          if (-not (Test-Path $csc)) {
+            throw "csc.exe not found at $csc"
+          }
+          New-Item -ItemType Directory -Force -Path "artifacts/net48-standalone" | Out-Null
+          & $csc /nologo /target:winexe /optimize+ /utf8output /codepage:65001 `
+            /out:artifacts/net48-standalone/StreloReminder.exe `
+            /r:System.dll `
+            /r:System.Core.dll `
+            /r:System.Drawing.dll `
+            /r:System.Windows.Forms.dll `
+            /r:System.Runtime.Serialization.dll `
+            /r:System.Xml.dll `
+            Program.cs `
+            Models\ReminderItem.cs `
+            Services\StorageService.cs `
+            Services\IconGenerator.cs `
+            Forms\PopupNotificationForm.cs `
+            Forms\MainForm.cs
+          if ($LASTEXITCODE -ne 0) {
+            throw "csc.exe compilation failed with exit code $LASTEXITCODE"
+          }
+          Get-Item "artifacts/net48-standalone/StreloReminder.exe" | Format-List Name, Length, LastWriteTime
+
+      - name: Restore & Build .NET 8 WinForms project
+        shell: pwsh
+        run: |
+          dotnet restore StreloReminder.csproj
+          dotnet build StreloReminder.csproj -c Release --no-restore
+
+      - name: Publish .NET 8 Single-File Executable (win-x64)
+        shell: pwsh
+        run: |
+          dotnet publish StreloReminder.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained false `
+            -p:PublishSingleFile=true `
+            -p:DebugType=None `
+            -p:DebugSymbols=false `
+            -o artifacts/net8-win-x64
+
+      - name: Upload Standalone EXE Artifact (.NET Framework 4.8 — works on any Windows 10/11)
+        uses: actions/upload-artifact@v4
+        with:
+          name: StreloReminder-Standalone-Win10-11
+          path: artifacts/net48-standalone/StreloReminder.exe
+          if-no-files-found: error
+
+      - name: Upload .NET 8 Win-x64 Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: StreloReminder-Net8-WinX64
+          path: artifacts/net8-win-x64/
+          if-no-files-found: error

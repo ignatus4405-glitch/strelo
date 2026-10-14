@@ -70,7 +70,7 @@ namespace StreloReminder.Forms
             TopMost = true;
             ShowInTaskbar = true;
             BackColor = Color.FromArgb(248, 250, 252);
-            ClientSize = new Size(500, 360);
+            ClientSize = new Size(540, 365);
             Font = new Font("Segoe UI", 9.5f, FontStyle.Regular);
 
             // Шапка окна
@@ -109,7 +109,7 @@ namespace StreloReminder.Forms
             Panel contentPanel = new Panel
             {
                 Location = new Point(18, 76),
-                Size = new Size(464, 126),
+                Size = new Size(504, 126),
                 BackColor = Color.White,
                 BorderStyle = BorderStyle.FixedSingle
             };
@@ -120,7 +120,7 @@ namespace StreloReminder.Forms
                 ForeColor = Color.FromArgb(15, 23, 42),
                 Font = new Font("Segoe UI", 13.5f, FontStyle.Bold),
                 Location = new Point(14, 12),
-                Size = new Size(434, 52),
+                Size = new Size(474, 52),
                 AutoEllipsis = true
             };
 
@@ -139,7 +139,7 @@ namespace StreloReminder.Forms
                 ScrollBars = ScrollBars.Vertical,
                 Font = new Font("Segoe UI", 9.75f, FontStyle.Regular),
                 Location = new Point(16, 68),
-                Size = new Size(430, 46),
+                Size = new Size(470, 46),
                 TabStop = false
             };
 
@@ -181,7 +181,8 @@ namespace StreloReminder.Forms
                 {
                     Text = quickLabels[i],
                     Location = new Point(btnX, 236),
-                    Size = new Size(58, 32),
+                    Size = new Size(64, 32),
+                    Padding = new Padding(0),
                     FlatStyle = FlatStyle.Flat,
                     BackColor = Color.FromArgb(226, 232, 240),
                     ForeColor = Color.FromArgb(30, 41, 59),
@@ -191,7 +192,7 @@ namespace StreloReminder.Forms
                 btnQuick.FlatAppearance.BorderColor = Color.FromArgb(203, 213, 225);
                 btnQuick.Click += delegate { ResolveSnoozeOffset(y, mo, d, h, m, s); };
                 Controls.Add(btnQuick);
-                btnX += 62;
+                btnX += 68;
             }
 
             // Произвольное количество и выбор единицы (сек, мин, ч, дн, мес, лет)
@@ -200,8 +201,8 @@ namespace StreloReminder.Forms
                 Minimum = 1,
                 Maximum = 999,
                 Value = 10,
-                Location = new Point(332, 240),
-                Size = new Size(46, 26),
+                Location = new Point(362, 240),
+                Size = new Size(50, 26),
                 Font = new Font("Segoe UI", 9f)
             };
 
@@ -209,8 +210,8 @@ namespace StreloReminder.Forms
             {
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 Font = new Font("Segoe UI", 8.75f),
-                Location = new Point(381, 240),
-                Size = new Size(54, 26)
+                Location = new Point(416, 240),
+                Size = new Size(56, 26)
             };
             _cmbCustomUnit.Items.AddRange(new object[]
             {
@@ -226,8 +227,9 @@ namespace StreloReminder.Forms
             Button btnCustomSnooze = new Button
             {
                 Text = "ОК",
-                Location = new Point(438, 236),
-                Size = new Size(44, 32),
+                Location = new Point(476, 236),
+                Size = new Size(46, 32),
+                Padding = new Padding(0),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(219, 234, 254),
                 ForeColor = Color.FromArgb(30, 64, 175),
@@ -256,8 +258,8 @@ namespace StreloReminder.Forms
                 Text = _reminder.Recurrence == RecurrenceType.None
                     ? "✓  Понятно (Выполнено)"
                     : "✓  ОК (Перенести на следующий повтор)",
-                Location = new Point(18, 292),
-                Size = new Size(464, 46),
+                Location = new Point(18, 294),
+                Size = new Size(504, 46),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(22, 163, 74),
                 ForeColor = Color.White,

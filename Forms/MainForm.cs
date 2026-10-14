@@ -29,12 +29,22 @@ namespace StreloReminder.Forms
         private TextBox _txtNotes;
         private RadioButton _rbTimerMode;
         private RadioButton _rbExactTimeMode;
+
+        // Панель «Через таймер» (Годы, Месяцы, Дни, Часы, Минуты, Секунды)
         private Panel _pnlTimerControls;
+        private NumericUpDown _numTimerYears;
+        private NumericUpDown _numTimerMonths;
+        private NumericUpDown _numTimerDays;
         private NumericUpDown _numTimerHours;
         private NumericUpDown _numTimerMinutes;
+        private NumericUpDown _numTimerSeconds;
+        private Label _lblTimerPreview;
+
+        // Панель «В точное время и дату»
         private Panel _pnlExactTimeControls;
         private DateTimePicker _dtpDate;
         private DateTimePicker _dtpTime;
+
         private ComboBox _cmbRecurrence;
         private Label _lblIntervalMinutes;
         private NumericUpDown _numIntervalMinutes;
@@ -61,6 +71,7 @@ namespace StreloReminder.Forms
             InitializeComponent();
             InitializeTrayIcon();
             LoadSavedReminders();
+            UpdateTimerPreviewLabel();
             StartScheduler();
         }
 
@@ -68,8 +79,8 @@ namespace StreloReminder.Forms
         {
             Text = "Strelo — Напоминалка для Windows";
             Icon = IconGenerator.GetAppIcon(false);
-            Size = new Size(960, 680);
-            MinimumSize = new Size(880, 620);
+            Size = new Size(960, 705);
+            MinimumSize = new Size(900, 645);
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Color.FromArgb(241, 245, 249);
             Font = new Font("Segoe UI", 9.25f, FontStyle.Regular);
@@ -138,8 +149,8 @@ namespace StreloReminder.Forms
                 Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(30, 41, 59),
                 BackColor = Color.White,
-                Location = new Point(16, 72),
-                Size = new Size(912, 228),
+                Location = new Point(16, 70),
+                Size = new Size(912, 260),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
 
@@ -164,15 +175,15 @@ namespace StreloReminder.Forms
                 Text = "Дополнительное описание / заметка (необязательно):",
                 Font = new Font("Segoe UI", 9f, FontStyle.Regular),
                 ForeColor = Color.FromArgb(71, 85, 105),
-                Location = new Point(16, 82),
+                Location = new Point(16, 84),
                 AutoSize = true
             };
 
             _txtNotes = new TextBox
             {
                 Font = new Font("Segoe UI", 9.25f, FontStyle.Regular),
-                Location = new Point(16, 104),
-                Size = new Size(420, 56),
+                Location = new Point(16, 106),
+                Size = new Size(420, 82),
                 Multiline = true,
                 ScrollBars = ScrollBars.Vertical
             };
@@ -182,16 +193,16 @@ namespace StreloReminder.Forms
             {
                 Text = "Когда сработать:",
                 Font = new Font("Segoe UI", 9f, FontStyle.Bold),
-                Location = new Point(458, 26),
+                Location = new Point(458, 25),
                 AutoSize = true
             };
 
             _rbTimerMode = new RadioButton
             {
-                Text = "Через таймер",
+                Text = "Через сколько",
                 Font = new Font("Segoe UI", 9f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(30, 64, 175),
-                Location = new Point(580, 24),
+                Location = new Point(575, 23),
                 AutoSize = true,
                 Checked = true,
                 Cursor = Cursors.Hand
@@ -203,104 +214,91 @@ namespace StreloReminder.Forms
                 Text = "В точное время и дату",
                 Font = new Font("Segoe UI", 9f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(30, 64, 175),
-                Location = new Point(710, 24),
+                Location = new Point(705, 23),
                 AutoSize = true,
                 Cursor = Cursors.Hand
             };
             _rbExactTimeMode.CheckedChanged += OnTimeModeChanged;
 
-            // Панель настройки таймера («Через N ч. M мин.» + быстрые кнопки)
+            // Панель настройки таймера («Годы, Месяцы, Дни, Часы, Минуты, Секунды» + быстрые кнопки + превью)
             _pnlTimerControls = new Panel
             {
-                Location = new Point(458, 48),
-                Size = new Size(438, 66),
+                Location = new Point(458, 46),
+                Size = new Size(438, 102),
                 BackColor = Color.FromArgb(248, 250, 252),
                 BorderStyle = BorderStyle.FixedSingle
             };
 
-            Label lblIn = new Label
+            _numTimerYears = CreateTimerUnitControl(_pnlTimerControls, "Годы", 8, 0, 100, 0);
+            _numTimerMonths = CreateTimerUnitControl(_pnlTimerControls, "Месяцы", 79, 0, 120, 0);
+            _numTimerDays = CreateTimerUnitControl(_pnlTimerControls, "Дни", 150, 0, 3650, 0);
+            _numTimerHours = CreateTimerUnitControl(_pnlTimerControls, "Часы", 221, 0, 999, 0);
+            _numTimerMinutes = CreateTimerUnitControl(_pnlTimerControls, "Минуты", 292, 0, 999, 15);
+            _numTimerSeconds = CreateTimerUnitControl(_pnlTimerControls, "Секунды", 363, 0, 999, 0);
+
+            // Быстрые кнопки установки интервала (сек, мин, ч, день, мес, год, сброс)
+            string[] presetLabels = new string[] { "30 сек", "5 мин", "15 мин", "1 час", "1 день", "1 мес", "1 год", "Сброс" };
+            int[,] presetOffsets = new int[,]
             {
-                Text = "Через:",
-                Font = new Font("Segoe UI", 9f, FontStyle.Regular),
-                Location = new Point(10, 9),
-                AutoSize = true
+                // years, months, days, hours, minutes, seconds
+                { 0, 0, 0, 0, 0, 30 },
+                { 0, 0, 0, 0, 5, 0 },
+                { 0, 0, 0, 0, 15, 0 },
+                { 0, 0, 0, 1, 0, 0 },
+                { 0, 0, 1, 0, 0, 0 },
+                { 0, 1, 0, 0, 0, 0 },
+                { 1, 0, 0, 0, 0, 0 },
+                { 0, 0, 0, 0, 0, 0 }
             };
 
-            _numTimerHours = new NumericUpDown
+            int presetX = 8;
+            for (int i = 0; i < presetLabels.Length; i++)
             {
-                Minimum = 0,
-                Maximum = 168,
-                Value = 0,
-                Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
-                Location = new Point(62, 6),
-                Size = new Size(52, 25)
-            };
+                int py = presetOffsets[i, 0];
+                int pmo = presetOffsets[i, 1];
+                int pd = presetOffsets[i, 2];
+                int ph = presetOffsets[i, 3];
+                int pm = presetOffsets[i, 4];
+                int ps = presetOffsets[i, 5];
+                bool isReset = (i == presetLabels.Length - 1);
 
-            Label lblHours = new Label
-            {
-                Text = "ч.",
-                Font = new Font("Segoe UI", 9f, FontStyle.Regular),
-                Location = new Point(118, 9),
-                AutoSize = true
-            };
-
-            _numTimerMinutes = new NumericUpDown
-            {
-                Minimum = 0,
-                Maximum = 1440,
-                Value = 15,
-                Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
-                Location = new Point(142, 6),
-                Size = new Size(60, 25)
-            };
-
-            Label lblMins = new Label
-            {
-                Text = "мин.",
-                Font = new Font("Segoe UI", 9f, FontStyle.Regular),
-                Location = new Point(206, 9),
-                AutoSize = true
-            };
-
-            // Быстрые кнопки установки таймера
-            int[] presetMinutes = new int[] { 5, 10, 15, 30, 60, 120 };
-            string[] presetLabels = new string[] { "5 мин", "10 мин", "15 мин", "30 мин", "1 час", "2 часа" };
-            int presetX = 10;
-            for (int i = 0; i < presetMinutes.Length; i++)
-            {
-                int totalMins = presetMinutes[i];
                 Button btnPreset = new Button
                 {
                     Text = presetLabels[i],
-                    Font = new Font("Segoe UI", 8.25f, FontStyle.Regular),
-                    Location = new Point(presetX, 36),
-                    Size = new Size(66, 24),
+                    Font = new Font("Segoe UI", 7.75f, isReset ? FontStyle.Bold : FontStyle.Regular),
+                    Location = new Point(presetX, 50),
+                    Size = new Size(51, 23),
                     FlatStyle = FlatStyle.Flat,
-                    BackColor = Color.FromArgb(226, 232, 240),
-                    ForeColor = Color.FromArgb(30, 41, 59),
+                    BackColor = isReset ? Color.FromArgb(254, 226, 226) : Color.FromArgb(226, 232, 240),
+                    ForeColor = isReset ? Color.FromArgb(185, 28, 28) : Color.FromArgb(30, 41, 59),
                     Cursor = Cursors.Hand
                 };
-                btnPreset.FlatAppearance.BorderColor = Color.FromArgb(203, 213, 225);
+                btnPreset.FlatAppearance.BorderColor = isReset
+                    ? Color.FromArgb(252, 165, 165)
+                    : Color.FromArgb(203, 213, 225);
                 btnPreset.Click += delegate
                 {
-                    _numTimerHours.Value = totalMins / 60;
-                    _numTimerMinutes.Value = totalMins % 60;
+                    SetTimerUnitValues(py, pmo, pd, ph, pm, ps);
                 };
                 _pnlTimerControls.Controls.Add(btnPreset);
-                presetX += 70;
+                presetX += 53;
             }
 
-            _pnlTimerControls.Controls.Add(lblIn);
-            _pnlTimerControls.Controls.Add(_numTimerHours);
-            _pnlTimerControls.Controls.Add(lblHours);
-            _pnlTimerControls.Controls.Add(_numTimerMinutes);
-            _pnlTimerControls.Controls.Add(lblMins);
+            _lblTimerPreview = new Label
+            {
+                Text = "Сработает: --",
+                Font = new Font("Segoe UI", 8.25f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(30, 64, 175),
+                Location = new Point(8, 77),
+                AutoSize = true
+            };
+            _pnlTimerControls.Controls.Add(_lblTimerPreview);
 
             // Панель точной даты и времени
             _pnlExactTimeControls = new Panel
             {
-                Location = new Point(458, 48),
-                Size = new Size(438, 66),
+                Location = new Point(458, 46),
+                Size = new Size(438, 102),
                 BackColor = Color.FromArgb(248, 250, 252),
                 BorderStyle = BorderStyle.FixedSingle,
                 Visible = false
@@ -310,7 +308,7 @@ namespace StreloReminder.Forms
             {
                 Text = "Дата:",
                 Font = new Font("Segoe UI", 9f, FontStyle.Regular),
-                Location = new Point(10, 10),
+                Location = new Point(10, 14),
                 AutoSize = true
             };
 
@@ -318,7 +316,7 @@ namespace StreloReminder.Forms
             {
                 Format = DateTimePickerFormat.Short,
                 Font = new Font("Segoe UI", 9.5f, FontStyle.Regular),
-                Location = new Point(54, 7),
+                Location = new Point(54, 11),
                 Size = new Size(125, 25),
                 Value = DateTime.Now.Date
             };
@@ -327,7 +325,7 @@ namespace StreloReminder.Forms
             {
                 Text = "Время:",
                 Font = new Font("Segoe UI", 9f, FontStyle.Regular),
-                Location = new Point(195, 10),
+                Location = new Point(195, 14),
                 AutoSize = true
             };
 
@@ -336,7 +334,7 @@ namespace StreloReminder.Forms
                 Format = DateTimePickerFormat.Time,
                 ShowUpDown = true,
                 Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
-                Location = new Point(248, 7),
+                Location = new Point(248, 11),
                 Size = new Size(115, 25),
                 Value = DateTime.Now.AddMinutes(15)
             };
@@ -345,8 +343,8 @@ namespace StreloReminder.Forms
             {
                 Text = "Завтра в 09:00",
                 Font = new Font("Segoe UI", 8.25f, FontStyle.Regular),
-                Location = new Point(10, 36),
-                Size = new Size(120, 24),
+                Location = new Point(10, 46),
+                Size = new Size(120, 26),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(226, 232, 240),
                 Cursor = Cursors.Hand
@@ -363,8 +361,8 @@ namespace StreloReminder.Forms
             {
                 Text = "Сегодня в 18:00",
                 Font = new Font("Segoe UI", 8.25f, FontStyle.Regular),
-                Location = new Point(138, 36),
-                Size = new Size(120, 24),
+                Location = new Point(138, 46),
+                Size = new Size(120, 26),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(226, 232, 240),
                 Cursor = Cursors.Hand
@@ -389,7 +387,7 @@ namespace StreloReminder.Forms
             {
                 Text = "Повтор:",
                 Font = new Font("Segoe UI", 9f, FontStyle.Regular),
-                Location = new Point(458, 125),
+                Location = new Point(458, 159),
                 AutoSize = true
             };
 
@@ -397,7 +395,7 @@ namespace StreloReminder.Forms
             {
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 Font = new Font("Segoe UI", 9f, FontStyle.Regular),
-                Location = new Point(518, 121),
+                Location = new Point(518, 155),
                 Size = new Size(175, 25)
             };
             _cmbRecurrence.Items.AddRange(new object[]
@@ -415,7 +413,7 @@ namespace StreloReminder.Forms
             {
                 Text = "Интервал (мин):",
                 Font = new Font("Segoe UI", 8.75f, FontStyle.Regular),
-                Location = new Point(704, 125),
+                Location = new Point(704, 159),
                 AutoSize = true,
                 Visible = false
             };
@@ -426,7 +424,7 @@ namespace StreloReminder.Forms
                 Maximum = 1440,
                 Value = 30,
                 Font = new Font("Segoe UI", 9f, FontStyle.Bold),
-                Location = new Point(808, 121),
+                Location = new Point(808, 155),
                 Size = new Size(65, 25),
                 Visible = false
             };
@@ -435,7 +433,7 @@ namespace StreloReminder.Forms
             {
                 Text = "Важность:",
                 Font = new Font("Segoe UI", 9f, FontStyle.Regular),
-                Location = new Point(458, 156),
+                Location = new Point(458, 189),
                 AutoSize = true
             };
 
@@ -443,7 +441,7 @@ namespace StreloReminder.Forms
             {
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 Font = new Font("Segoe UI", 9f, FontStyle.Regular),
-                Location = new Point(528, 152),
+                Location = new Point(528, 185),
                 Size = new Size(165, 25)
             };
             _cmbPriority.Items.AddRange(new object[]
@@ -457,7 +455,7 @@ namespace StreloReminder.Forms
             {
                 Text = "Звуковой сигнал",
                 Font = new Font("Segoe UI", 9f, FontStyle.Regular),
-                Location = new Point(710, 154),
+                Location = new Point(710, 187),
                 AutoSize = true,
                 Checked = true,
                 Cursor = Cursors.Hand
@@ -468,8 +466,8 @@ namespace StreloReminder.Forms
             {
                 Text = "➕  Добавить напоминание",
                 Font = new Font("Segoe UI", 10f, FontStyle.Bold),
-                Location = new Point(16, 174),
-                Size = new Size(260, 40),
+                Location = new Point(16, 204),
+                Size = new Size(260, 42),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(37, 99, 235),
                 ForeColor = Color.White,
@@ -482,8 +480,8 @@ namespace StreloReminder.Forms
             {
                 Text = "Отмена",
                 Font = new Font("Segoe UI", 9f, FontStyle.Regular),
-                Location = new Point(284, 174),
-                Size = new Size(95, 40),
+                Location = new Point(284, 204),
+                Size = new Size(95, 42),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(226, 232, 240),
                 ForeColor = Color.FromArgb(51, 65, 85),
@@ -497,7 +495,7 @@ namespace StreloReminder.Forms
             {
                 Text = "🔔 Проверить всплывающее окно",
                 Font = new Font("Segoe UI", 9f, FontStyle.Bold),
-                Location = new Point(458, 180),
+                Location = new Point(458, 214),
                 Size = new Size(245, 34),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(238, 242, 255),
@@ -511,7 +509,7 @@ namespace StreloReminder.Forms
             {
                 Text = "⬇ Свернуть в трей",
                 Font = new Font("Segoe UI", 9f, FontStyle.Regular),
-                Location = new Point(715, 180),
+                Location = new Point(715, 214),
                 Size = new Size(181, 34),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(241, 245, 249),
@@ -545,7 +543,7 @@ namespace StreloReminder.Forms
             // 3. ПАНЕЛЬ УПРАВЛЕНИЯ СПИСКОМ НАПОМИНАНИЙ
             Panel listToolbar = new Panel
             {
-                Location = new Point(16, 308),
+                Location = new Point(16, 338),
                 Size = new Size(912, 38),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 BackColor = Color.Transparent
@@ -589,8 +587,8 @@ namespace StreloReminder.Forms
             // 4. ТАБЛИЦА НАПОМИНАНИЙ
             _lvReminders = new ListView
             {
-                Location = new Point(16, 350),
-                Size = new Size(912, 272),
+                Location = new Point(16, 380),
+                Size = new Size(912, 268),
                 Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
                 View = View.Details,
                 FullRowSelect = true,
@@ -602,11 +600,11 @@ namespace StreloReminder.Forms
             };
 
             _lvReminders.Columns.Add("Статус", 115);
-            _lvReminders.Columns.Add("Текст напоминания", 245);
+            _lvReminders.Columns.Add("Текст напоминания", 235);
             _lvReminders.Columns.Add("Время срабатывания", 145);
-            _lvReminders.Columns.Add("Осталось", 130);
-            _lvReminders.Columns.Add("Повтор", 130);
-            _lvReminders.Columns.Add("Описание / Заметка", 135);
+            _lvReminders.Columns.Add("Осталось", 145);
+            _lvReminders.Columns.Add("Повтор", 125);
+            _lvReminders.Columns.Add("Описание / Заметка", 130);
 
             _lvReminders.DoubleClick += OnEditSelectedClick;
 
@@ -614,6 +612,96 @@ namespace StreloReminder.Forms
             Controls.Add(_grpEditor);
             Controls.Add(listToolbar);
             Controls.Add(_lvReminders);
+        }
+
+        private NumericUpDown CreateTimerUnitControl(
+            Panel parent,
+            string caption,
+            int x,
+            int min,
+            int max,
+            int defaultValue)
+        {
+            Label lbl = new Label
+            {
+                Text = caption,
+                Font = new Font("Segoe UI", 8f, FontStyle.Regular),
+                ForeColor = Color.FromArgb(71, 85, 105),
+                Location = new Point(x, 4),
+                AutoSize = true
+            };
+
+            NumericUpDown num = new NumericUpDown
+            {
+                Minimum = min,
+                Maximum = max,
+                Value = defaultValue,
+                Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+                Location = new Point(x, 22),
+                Size = new Size(64, 24)
+            };
+            num.ValueChanged += delegate { UpdateTimerPreviewLabel(); };
+
+            parent.Controls.Add(lbl);
+            parent.Controls.Add(num);
+            return num;
+        }
+
+        private void SetTimerUnitValues(int years, int months, int days, int hours, int minutes, int seconds)
+        {
+            _numTimerYears.Value = Math.Max(_numTimerYears.Minimum, Math.Min(_numTimerYears.Maximum, years));
+            _numTimerMonths.Value = Math.Max(_numTimerMonths.Minimum, Math.Min(_numTimerMonths.Maximum, months));
+            _numTimerDays.Value = Math.Max(_numTimerDays.Minimum, Math.Min(_numTimerDays.Maximum, days));
+            _numTimerHours.Value = Math.Max(_numTimerHours.Minimum, Math.Min(_numTimerHours.Maximum, hours));
+            _numTimerMinutes.Value = Math.Max(_numTimerMinutes.Minimum, Math.Min(_numTimerMinutes.Maximum, minutes));
+            _numTimerSeconds.Value = Math.Max(_numTimerSeconds.Minimum, Math.Min(_numTimerSeconds.Maximum, seconds));
+            UpdateTimerPreviewLabel();
+        }
+
+        private DateTime CalculateSelectedTimerTarget(DateTime baseTime)
+        {
+            int years = (int)_numTimerYears.Value;
+            int months = (int)_numTimerMonths.Value;
+            int days = (int)_numTimerDays.Value;
+            int hours = (int)_numTimerHours.Value;
+            int mins = (int)_numTimerMinutes.Value;
+            int secs = (int)_numTimerSeconds.Value;
+
+            if (years == 0 && months == 0 && days == 0 && hours == 0 && mins == 0 && secs == 0)
+            {
+                secs = 10;
+            }
+
+            return baseTime
+                .AddYears(years)
+                .AddMonths(months)
+                .AddDays(days)
+                .AddHours(hours)
+                .AddMinutes(mins)
+                .AddSeconds(secs);
+        }
+
+        private void UpdateTimerPreviewLabel()
+        {
+            if (_lblTimerPreview == null)
+                return;
+
+            int years = (int)_numTimerYears.Value;
+            int months = (int)_numTimerMonths.Value;
+            int days = (int)_numTimerDays.Value;
+            int hours = (int)_numTimerHours.Value;
+            int mins = (int)_numTimerMinutes.Value;
+            int secs = (int)_numTimerSeconds.Value;
+
+            DateTime target = CalculateSelectedTimerTarget(DateTime.Now);
+            if (years == 0 && months == 0 && days == 0 && hours == 0 && mins == 0 && secs == 0)
+            {
+                _lblTimerPreview.Text = string.Format("По умолчанию (+10 сек) -> сработает: {0:dd.MM.yyyy HH:mm:ss}", target);
+            }
+            else
+            {
+                _lblTimerPreview.Text = string.Format("Сработает: {0:dd.MM.yyyy HH:mm:ss}", target);
+            }
         }
 
         private Button CreateToolbarButton(string text, int x, Color backColor, Color foreColor, int width = 102)
@@ -712,6 +800,11 @@ namespace StreloReminder.Forms
             DateTime now = DateTime.Now;
             _lblClock.Text = "Сейчас: " + now.ToString("dd.MM.yyyy HH:mm:ss");
 
+            if (_rbTimerMode.Checked)
+            {
+                UpdateTimerPreviewLabel();
+            }
+
             // Проверяем, какие напоминания пора показать
             if (!_isDoNotDisturb)
             {
@@ -741,21 +834,12 @@ namespace StreloReminder.Forms
             popup.Show();
         }
 
-        private void OnPopupResolved(ReminderItem item, PopupResultAction action, int snoozeMinutes)
+        private void OnPopupResolved(ReminderItem item, PopupResultAction action)
         {
             item.IsPopupOpen = false;
             if (_activePopups.ContainsKey(item.Id))
             {
                 _activePopups.Remove(item.Id);
-            }
-
-            if (action == PopupResultAction.Snoozed)
-            {
-                item.Snooze(snoozeMinutes);
-            }
-            else
-            {
-                item.AdvanceAfterComplete(DateTime.Now);
             }
 
             StorageService.SaveReminders(_reminders);
@@ -767,6 +851,10 @@ namespace StreloReminder.Forms
             bool isTimer = _rbTimerMode.Checked;
             _pnlTimerControls.Visible = isTimer;
             _pnlExactTimeControls.Visible = !isTimer;
+            if (isTimer)
+            {
+                UpdateTimerPreviewLabel();
+            }
         }
 
         private void OnRecurrenceChanged(object sender, EventArgs e)
@@ -793,13 +881,7 @@ namespace StreloReminder.Forms
             DateTime triggerTime;
             if (_rbTimerMode.Checked)
             {
-                int hours = (int)_numTimerHours.Value;
-                int mins = (int)_numTimerMinutes.Value;
-                if (hours == 0 && mins == 0)
-                {
-                    mins = 1;
-                }
-                triggerTime = DateTime.Now.AddHours(hours).AddMinutes(mins);
+                triggerTime = CalculateSelectedTimerTarget(DateTime.Now);
             }
             else
             {
@@ -861,8 +943,7 @@ namespace StreloReminder.Forms
             _txtTitle.Text = string.Empty;
             _txtNotes.Text = string.Empty;
             _rbTimerMode.Checked = true;
-            _numTimerHours.Value = 0;
-            _numTimerMinutes.Value = 15;
+            SetTimerUnitValues(0, 0, 0, 0, 15, 0);
             _dtpDate.Value = DateTime.Now.Date;
             _dtpTime.Value = DateTime.Now.AddMinutes(15);
             _cmbRecurrence.SelectedIndex = 0;
@@ -960,6 +1041,10 @@ namespace StreloReminder.Forms
             _dtpDate.Value = trigger.Date;
             _dtpTime.Value = trigger;
 
+            int y, mo, d, h, m, s;
+            ReminderItem.CalculateCalendarDiff(DateTime.Now, trigger, out y, out mo, out d, out h, out m, out s);
+            SetTimerUnitValues(y, mo, d, h, m, s);
+
             _cmbRecurrence.SelectedIndex = (int)item.Recurrence;
             _numIntervalMinutes.Value = Math.Max(1, Math.Min(1440, item.IntervalMinutes));
             _cmbPriority.SelectedIndex = (int)item.Priority;
@@ -978,7 +1063,6 @@ namespace StreloReminder.Forms
 
             if (item.IsCompleted)
             {
-                // Повторный запуск выполненного напоминания через 15 минут
                 item.IsCompleted = false;
                 item.IsEnabled = true;
                 if (item.TriggerTime <= DateTime.Now)
@@ -1078,7 +1162,6 @@ namespace StreloReminder.Forms
                 selectedId = _lvReminders.SelectedItems[0].Tag as string;
             }
 
-            // Сортируем: сначала активные по времени срабатывания, затем выполненные/отключенные
             _reminders.Sort(CompareReminders);
 
             _lvReminders.BeginUpdate();
@@ -1237,7 +1320,6 @@ namespace StreloReminder.Forms
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            // При закрытии окна крестиком сворачиваем программу в трей, чтобы напоминания не пропали
             if (!_isExiting && e.CloseReason == CloseReason.UserClosing)
             {
                 e.Cancel = true;

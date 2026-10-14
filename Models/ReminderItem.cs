@@ -148,20 +148,76 @@ namespace StreloReminder.Models
             if (diff.TotalSeconds <= 0)
                 return "Срабатывает...";
 
-            if (diff.TotalDays >= 1)
+            int years;
+            int months;
+            int days;
+            int hours;
+            int minutes;
+            int seconds;
+            CalculateCalendarDiff(now, TriggerTime, out years, out months, out days, out hours, out minutes, out seconds);
+
+            if (years > 0)
             {
-                int days = (int)diff.TotalDays;
-                return string.Format("{0} дн. {1} ч. {2} мин.", days, diff.Hours, diff.Minutes);
+                return string.Format("{0} г. {1} мес. {2} дн. {3} ч.", years, months, days, hours);
             }
-            if (diff.TotalHours >= 1)
+            if (months > 0)
             {
-                return string.Format("{0} ч. {1} мин. {2} сек.", (int)diff.TotalHours, diff.Minutes, diff.Seconds);
+                return string.Format("{0} мес. {1} дн. {2} ч. {3} мин.", months, days, hours, minutes);
             }
-            if (diff.TotalMinutes >= 1)
+            if (days > 0)
             {
-                return string.Format("{0} мин. {1} сек.", (int)diff.TotalMinutes, diff.Seconds);
+                return string.Format("{0} дн. {1} ч. {2} мин. {3} сек.", days, hours, minutes, seconds);
             }
-            return string.Format("{0} сек.", Math.Max(1, (int)Math.Ceiling(diff.TotalSeconds)));
+            if (hours > 0)
+            {
+                return string.Format("{0} ч. {1} мин. {2} сек.", hours, minutes, seconds);
+            }
+            if (minutes > 0)
+            {
+                return string.Format("{0} мин. {1} сек.", minutes, seconds);
+            }
+            return string.Format("{0} сек.", Math.Max(1, seconds));
+        }
+
+        public static void CalculateCalendarDiff(
+            DateTime from,
+            DateTime to,
+            out int years,
+            out int months,
+            out int days,
+            out int hours,
+            out int minutes,
+            out int seconds)
+        {
+            years = 0;
+            months = 0;
+            days = 0;
+            hours = 0;
+            minutes = 0;
+            seconds = 0;
+
+            if (to <= from)
+                return;
+
+            DateTime cursor = from;
+
+            while (cursor.AddYears(years + 1) <= to)
+            {
+                years++;
+            }
+            cursor = cursor.AddYears(years);
+
+            while (cursor.AddMonths(months + 1) <= to)
+            {
+                months++;
+            }
+            cursor = cursor.AddMonths(months);
+
+            TimeSpan rem = to - cursor;
+            days = rem.Days;
+            hours = rem.Hours;
+            minutes = rem.Minutes;
+            seconds = rem.Seconds;
         }
 
         /// <summary>
@@ -219,6 +275,29 @@ namespace StreloReminder.Models
         {
             int mins = Math.Max(1, minutes);
             TriggerTime = DateTime.Now.AddMinutes(mins);
+            IsCompleted = false;
+            IsEnabled = true;
+        }
+
+        /// <summary>
+        /// Откладывает напоминание на заданное смещение (годы, месяцы, дни, часы, минуты, секунды) от текущего момента.
+        /// </summary>
+        public void SnoozeByOffset(int years, int months, int days, int hours, int minutes, int seconds)
+        {
+            DateTime target = DateTime.Now
+                .AddYears(Math.Max(0, years))
+                .AddMonths(Math.Max(0, months))
+                .AddDays(Math.Max(0, days))
+                .AddHours(Math.Max(0, hours))
+                .AddMinutes(Math.Max(0, minutes))
+                .AddSeconds(Math.Max(0, seconds));
+
+            if (target <= DateTime.Now)
+            {
+                target = DateTime.Now.AddSeconds(10);
+            }
+
+            TriggerTime = target;
             IsCompleted = false;
             IsEnabled = true;
         }

@@ -79,17 +79,19 @@ namespace StreloReminder.Forms
         {
             Text = "Strelo — Напоминалка для Windows";
             Icon = IconGenerator.GetAppIcon(false);
-            Size = new Size(1000, 720);
-            MinimumSize = new Size(960, 660);
+            ClientSize = new Size(1060, 700);
+            MinimumSize = new Size(1076, 738);
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Color.FromArgb(241, 245, 249);
             Font = new Font("Segoe UI", 9.25f, FontStyle.Regular);
 
             // 1. ВЕРХНЯЯ ПАНЕЛЬ (ШАПКА)
+            // Важно задать Size до добавления дочерних элементов с AnchorStyles.Right
             Panel headerPanel = new Panel
             {
+                Location = new Point(0, 0),
+                Size = new Size(1060, 60),
                 Dock = DockStyle.Top,
-                Height = 60,
                 BackColor = Color.FromArgb(30, 58, 138),
                 Padding = new Padding(18, 0, 18, 0)
             };
@@ -119,7 +121,7 @@ namespace StreloReminder.Forms
                 BackColor = Color.Transparent,
                 Font = new Font("Segoe UI", 9f, FontStyle.Bold),
                 AutoSize = true,
-                Location = new Point(490, 20),
+                Location = new Point(540, 20),
                 Anchor = AnchorStyles.Top | AnchorStyles.Right,
                 Cursor = Cursors.Hand
             };
@@ -132,7 +134,7 @@ namespace StreloReminder.Forms
                 BackColor = Color.Transparent,
                 Font = new Font("Segoe UI", 9f, FontStyle.Regular),
                 AutoSize = true,
-                Location = new Point(770, 20),
+                Location = new Point(835, 20),
                 Anchor = AnchorStyles.Top | AnchorStyles.Right,
                 Cursor = Cursors.Hand,
                 Checked = StorageService.IsAutoStartEnabled()
@@ -152,7 +154,7 @@ namespace StreloReminder.Forms
                 ForeColor = Color.FromArgb(30, 41, 59),
                 BackColor = Color.White,
                 Location = new Point(16, 70),
-                Size = new Size(952, 262),
+                Size = new Size(1028, 262),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
 
@@ -161,15 +163,15 @@ namespace StreloReminder.Forms
             {
                 Text = "О чём напомнить:",
                 Font = new Font("Segoe UI", 9f, FontStyle.Bold),
-                Location = new Point(16, 26),
+                Location = new Point(18, 26),
                 AutoSize = true
             };
 
             _txtTitle = new TextBox
             {
                 Font = new Font("Segoe UI", 10.5f, FontStyle.Regular),
-                Location = new Point(16, 48),
-                Size = new Size(420, 27)
+                Location = new Point(18, 48),
+                Size = new Size(462, 27)
             };
 
             Label lblNotes = new Label
@@ -177,15 +179,15 @@ namespace StreloReminder.Forms
                 Text = "Дополнительное описание / заметка (необязательно):",
                 Font = new Font("Segoe UI", 9f, FontStyle.Regular),
                 ForeColor = Color.FromArgb(71, 85, 105),
-                Location = new Point(16, 84),
+                Location = new Point(18, 84),
                 AutoSize = true
             };
 
             _txtNotes = new TextBox
             {
                 Font = new Font("Segoe UI", 9.25f, FontStyle.Regular),
-                Location = new Point(16, 106),
-                Size = new Size(420, 82),
+                Location = new Point(18, 106),
+                Size = new Size(462, 82),
                 Multiline = true,
                 ScrollBars = ScrollBars.Vertical
             };
@@ -195,7 +197,7 @@ namespace StreloReminder.Forms
             {
                 Text = "Когда сработать:",
                 Font = new Font("Segoe UI", 9f, FontStyle.Bold),
-                Location = new Point(458, 25),
+                Location = new Point(504, 25),
                 AutoSize = true
             };
 
@@ -204,7 +206,7 @@ namespace StreloReminder.Forms
                 Text = "Через сколько",
                 Font = new Font("Segoe UI", 9f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(30, 64, 175),
-                Location = new Point(580, 23),
+                Location = new Point(632, 23),
                 AutoSize = true,
                 Checked = true,
                 Cursor = Cursors.Hand
@@ -216,7 +218,7 @@ namespace StreloReminder.Forms
                 Text = "В точное время и дату",
                 Font = new Font("Segoe UI", 9f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(30, 64, 175),
-                Location = new Point(720, 23),
+                Location = new Point(778, 23),
                 AutoSize = true,
                 Cursor = Cursors.Hand
             };
@@ -225,21 +227,20 @@ namespace StreloReminder.Forms
             // Панель настройки таймера («Годы, Месяцы, Дни, Часы, Минуты, Секунды» + быстрые кнопки + превью)
             _pnlTimerControls = new Panel
             {
-                Location = new Point(458, 46),
-                Size = new Size(478, 106),
+                Location = new Point(504, 46),
+                Size = new Size(506, 106),
                 BackColor = Color.FromArgb(248, 250, 252),
                 BorderStyle = BorderStyle.FixedSingle
             };
 
             _numTimerYears = CreateTimerUnitControl(_pnlTimerControls, "Годы", 10, 0, 100, 0);
-            _numTimerMonths = CreateTimerUnitControl(_pnlTimerControls, "Месяцы", 87, 0, 120, 0);
-            _numTimerDays = CreateTimerUnitControl(_pnlTimerControls, "Дни", 164, 0, 3650, 0);
-            _numTimerHours = CreateTimerUnitControl(_pnlTimerControls, "Часы", 241, 0, 999, 0);
-            _numTimerMinutes = CreateTimerUnitControl(_pnlTimerControls, "Минуты", 318, 0, 999, 15);
-            _numTimerSeconds = CreateTimerUnitControl(_pnlTimerControls, "Секунды", 395, 0, 999, 0);
+            _numTimerMonths = CreateTimerUnitControl(_pnlTimerControls, "Месяцы", 92, 0, 120, 0);
+            _numTimerDays = CreateTimerUnitControl(_pnlTimerControls, "Дни", 174, 0, 3650, 0);
+            _numTimerHours = CreateTimerUnitControl(_pnlTimerControls, "Часы", 256, 0, 999, 0);
+            _numTimerMinutes = CreateTimerUnitControl(_pnlTimerControls, "Минуты", 338, 0, 999, 15);
+            _numTimerSeconds = CreateTimerUnitControl(_pnlTimerControls, "Секунды", 420, 0, 999, 0);
 
             // Быстрые кнопки установки интервала (сек, мин, ч, день, мес, год, сброс)
-            // Ширина каждой кнопки 56px, чтобы текст «15 мин» и др. никогда не переносился на вторую строку
             string[] presetLabels = new string[] { "30 сек", "5 мин", "15 мин", "1 час", "1 день", "1 мес", "1 год", "Сброс" };
             int[,] presetOffsets = new int[,]
             {
@@ -270,7 +271,7 @@ namespace StreloReminder.Forms
                     Text = presetLabels[i],
                     Font = new Font("Segoe UI", 8f, isReset ? FontStyle.Bold : FontStyle.Regular),
                     Location = new Point(presetX, 50),
-                    Size = new Size(55, 25),
+                    Size = new Size(58, 25),
                     Padding = new Padding(0),
                     FlatStyle = FlatStyle.Flat,
                     BackColor = isReset ? Color.FromArgb(254, 226, 226) : Color.FromArgb(226, 232, 240),
@@ -285,7 +286,7 @@ namespace StreloReminder.Forms
                     SetTimerUnitValues(py, pmo, pd, ph, pm, ps);
                 };
                 _pnlTimerControls.Controls.Add(btnPreset);
-                presetX += 57;
+                presetX += 61;
             }
 
             _lblTimerPreview = new Label
@@ -301,8 +302,8 @@ namespace StreloReminder.Forms
             // Панель точной даты и времени
             _pnlExactTimeControls = new Panel
             {
-                Location = new Point(458, 46),
-                Size = new Size(478, 106),
+                Location = new Point(504, 46),
+                Size = new Size(506, 106),
                 BackColor = Color.FromArgb(248, 250, 252),
                 BorderStyle = BorderStyle.FixedSingle,
                 Visible = false
@@ -321,7 +322,7 @@ namespace StreloReminder.Forms
                 Format = DateTimePickerFormat.Short,
                 Font = new Font("Segoe UI", 9.5f, FontStyle.Regular),
                 Location = new Point(58, 13),
-                Size = new Size(130, 25),
+                Size = new Size(135, 25),
                 Value = DateTime.Now.Date
             };
 
@@ -329,7 +330,7 @@ namespace StreloReminder.Forms
             {
                 Text = "Время:",
                 Font = new Font("Segoe UI", 9f, FontStyle.Regular),
-                Location = new Point(206, 16),
+                Location = new Point(212, 16),
                 AutoSize = true
             };
 
@@ -338,8 +339,8 @@ namespace StreloReminder.Forms
                 Format = DateTimePickerFormat.Time,
                 ShowUpDown = true,
                 Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
-                Location = new Point(260, 13),
-                Size = new Size(120, 25),
+                Location = new Point(268, 13),
+                Size = new Size(125, 25),
                 Value = DateTime.Now.AddMinutes(15)
             };
 
@@ -348,7 +349,7 @@ namespace StreloReminder.Forms
                 Text = "Завтра в 09:00",
                 Font = new Font("Segoe UI", 8.5f, FontStyle.Regular),
                 Location = new Point(12, 52),
-                Size = new Size(130, 28),
+                Size = new Size(135, 28),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(226, 232, 240),
                 Cursor = Cursors.Hand
@@ -365,8 +366,8 @@ namespace StreloReminder.Forms
             {
                 Text = "Сегодня в 18:00",
                 Font = new Font("Segoe UI", 8.5f, FontStyle.Regular),
-                Location = new Point(150, 52),
-                Size = new Size(130, 28),
+                Location = new Point(156, 52),
+                Size = new Size(135, 28),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(226, 232, 240),
                 Cursor = Cursors.Hand
@@ -391,7 +392,7 @@ namespace StreloReminder.Forms
             {
                 Text = "Повтор:",
                 Font = new Font("Segoe UI", 9f, FontStyle.Regular),
-                Location = new Point(458, 162),
+                Location = new Point(504, 162),
                 AutoSize = true
             };
 
@@ -399,8 +400,8 @@ namespace StreloReminder.Forms
             {
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 Font = new Font("Segoe UI", 9f, FontStyle.Regular),
-                Location = new Point(528, 158),
-                Size = new Size(180, 25)
+                Location = new Point(574, 158),
+                Size = new Size(190, 25)
             };
             _cmbRecurrence.Items.AddRange(new object[]
             {
@@ -417,7 +418,7 @@ namespace StreloReminder.Forms
             {
                 Text = "Интервал (мин):",
                 Font = new Font("Segoe UI", 8.75f, FontStyle.Regular),
-                Location = new Point(720, 162),
+                Location = new Point(776, 162),
                 AutoSize = true,
                 Visible = false
             };
@@ -428,8 +429,8 @@ namespace StreloReminder.Forms
                 Maximum = 1440,
                 Value = 30,
                 Font = new Font("Segoe UI", 9f, FontStyle.Bold),
-                Location = new Point(826, 158),
-                Size = new Size(70, 25),
+                Location = new Point(884, 158),
+                Size = new Size(72, 25),
                 Visible = false
             };
 
@@ -437,7 +438,7 @@ namespace StreloReminder.Forms
             {
                 Text = "Важность:",
                 Font = new Font("Segoe UI", 9f, FontStyle.Regular),
-                Location = new Point(458, 192),
+                Location = new Point(504, 192),
                 AutoSize = true
             };
 
@@ -445,8 +446,8 @@ namespace StreloReminder.Forms
             {
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 Font = new Font("Segoe UI", 9f, FontStyle.Regular),
-                Location = new Point(528, 188),
-                Size = new Size(180, 25)
+                Location = new Point(574, 188),
+                Size = new Size(190, 25)
             };
             _cmbPriority.Items.AddRange(new object[]
             {
@@ -459,7 +460,7 @@ namespace StreloReminder.Forms
             {
                 Text = "Звуковой сигнал",
                 Font = new Font("Segoe UI", 9f, FontStyle.Regular),
-                Location = new Point(724, 190),
+                Location = new Point(780, 190),
                 AutoSize = true,
                 Checked = true,
                 Cursor = Cursors.Hand
@@ -470,8 +471,8 @@ namespace StreloReminder.Forms
             {
                 Text = "+ Добавить напоминание",
                 Font = new Font("Segoe UI", 10f, FontStyle.Bold),
-                Location = new Point(16, 206),
-                Size = new Size(265, 42),
+                Location = new Point(18, 206),
+                Size = new Size(280, 42),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(37, 99, 235),
                 ForeColor = Color.White,
@@ -484,8 +485,8 @@ namespace StreloReminder.Forms
             {
                 Text = "Отмена",
                 Font = new Font("Segoe UI", 9f, FontStyle.Bold),
-                Location = new Point(290, 206),
-                Size = new Size(105, 42),
+                Location = new Point(308, 206),
+                Size = new Size(110, 42),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(226, 232, 240),
                 ForeColor = Color.FromArgb(51, 65, 85),
@@ -499,8 +500,8 @@ namespace StreloReminder.Forms
             {
                 Text = "Проверить всплывающее окно",
                 Font = new Font("Segoe UI", 9f, FontStyle.Bold),
-                Location = new Point(458, 214),
-                Size = new Size(255, 34),
+                Location = new Point(504, 214),
+                Size = new Size(270, 34),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(238, 242, 255),
                 ForeColor = Color.FromArgb(30, 64, 175),
@@ -513,8 +514,8 @@ namespace StreloReminder.Forms
             {
                 Text = "Свернуть в трей",
                 Font = new Font("Segoe UI", 9f, FontStyle.Regular),
-                Location = new Point(723, 214),
-                Size = new Size(213, 34),
+                Location = new Point(784, 214),
+                Size = new Size(226, 34),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(241, 245, 249),
                 ForeColor = Color.FromArgb(51, 65, 85),
@@ -545,11 +546,12 @@ namespace StreloReminder.Forms
             _grpEditor.Controls.Add(btnMinimizeToTray);
 
             // 3. ПАНЕЛЬ УПРАВЛЕНИЯ СПИСКОМ НАПОМИНАНИЙ
-            // Заголовок слева не перекрывает кнопки: кнопки привязаны к правому краю и имеют достаточную ширину
+            // _lblSummary имеет AutoSize = true, а окно имеет достаточную ширину (1060px),
+            // чтобы текст «Список напоминаний (Всего: X, Активных: Y)» всегда отображался целиком без обрезания
             Panel listToolbar = new Panel
             {
                 Location = new Point(16, 340),
-                Size = new Size(952, 40),
+                Size = new Size(1028, 40),
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 BackColor = Color.Transparent
             };
@@ -560,27 +562,25 @@ namespace StreloReminder.Forms
                 Font = new Font("Segoe UI", 10f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(30, 41, 59),
                 Location = new Point(2, 9),
-                Size = new Size(320, 26),
-                AutoSize = false,
-                AutoEllipsis = true
+                AutoSize = true
             };
 
-            Button btnEdit = CreateToolbarButton("Изменить", 328, 92, Color.FromArgb(226, 232, 240), Color.FromArgb(30, 41, 59));
+            Button btnEdit = CreateToolbarButton("Изменить", 408, 94, Color.FromArgb(226, 232, 240), Color.FromArgb(30, 41, 59));
             btnEdit.Click += OnEditSelectedClick;
 
-            Button btnToggle = CreateToolbarButton("Вкл / Выкл", 426, 98, Color.FromArgb(226, 232, 240), Color.FromArgb(30, 41, 59));
+            Button btnToggle = CreateToolbarButton("Вкл / Выкл", 508, 100, Color.FromArgb(226, 232, 240), Color.FromArgb(30, 41, 59));
             btnToggle.Click += OnToggleSelectedClick;
 
-            Button btnSnooze10 = CreateToolbarButton("+10 мин", 530, 86, Color.FromArgb(219, 234, 254), Color.FromArgb(30, 64, 175));
+            Button btnSnooze10 = CreateToolbarButton("+10 мин", 614, 88, Color.FromArgb(219, 234, 254), Color.FromArgb(30, 64, 175));
             btnSnooze10.Click += OnSnooze10SelectedClick;
 
-            Button btnDelete = CreateToolbarButton("Удалить", 622, 88, Color.FromArgb(254, 226, 226), Color.FromArgb(185, 28, 28));
+            Button btnDelete = CreateToolbarButton("Удалить", 708, 90, Color.FromArgb(254, 226, 226), Color.FromArgb(185, 28, 28));
             btnDelete.Click += OnDeleteSelectedClick;
 
-            Button btnClearDone = CreateToolbarButton("Очистить выполненные", 716, 162, Color.FromArgb(226, 232, 240), Color.FromArgb(51, 65, 85));
+            Button btnClearDone = CreateToolbarButton("Очистить выполненные", 804, 152, Color.FromArgb(226, 232, 240), Color.FromArgb(51, 65, 85));
             btnClearDone.Click += OnClearCompletedClick;
 
-            Button btnOpenFolder = CreateToolbarButton("Папка", 884, 68, Color.FromArgb(226, 232, 240), Color.FromArgb(51, 65, 85));
+            Button btnOpenFolder = CreateToolbarButton("Папка", 962, 66, Color.FromArgb(226, 232, 240), Color.FromArgb(51, 65, 85));
             btnOpenFolder.Click += OnOpenStorageFolderClick;
 
             listToolbar.Controls.Add(_lblSummary);
@@ -595,7 +595,7 @@ namespace StreloReminder.Forms
             _lvReminders = new ListView
             {
                 Location = new Point(16, 384),
-                Size = new Size(952, 280),
+                Size = new Size(1028, 300),
                 Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
                 View = View.Details,
                 FullRowSelect = true,
@@ -606,12 +606,12 @@ namespace StreloReminder.Forms
                 Font = new Font("Segoe UI", 9.5f, FontStyle.Regular)
             };
 
-            _lvReminders.Columns.Add("Статус", 115);
-            _lvReminders.Columns.Add("Текст напоминания", 250);
-            _lvReminders.Columns.Add("Время срабатывания", 150);
-            _lvReminders.Columns.Add("Осталось", 150);
-            _lvReminders.Columns.Add("Повтор", 130);
-            _lvReminders.Columns.Add("Описание / Заметка", 145);
+            _lvReminders.Columns.Add("Статус", 120);
+            _lvReminders.Columns.Add("Текст напоминания", 275);
+            _lvReminders.Columns.Add("Время срабатывания", 155);
+            _lvReminders.Columns.Add("Осталось", 165);
+            _lvReminders.Columns.Add("Повтор", 135);
+            _lvReminders.Columns.Add("Описание / Заметка", 165);
 
             _lvReminders.DoubleClick += OnEditSelectedClick;
 
@@ -645,7 +645,7 @@ namespace StreloReminder.Forms
                 Value = defaultValue,
                 Font = new Font("Segoe UI", 9f, FontStyle.Bold),
                 Location = new Point(x, 22),
-                Size = new Size(68, 24)
+                Size = new Size(74, 24)
             };
             num.ValueChanged += delegate { UpdateTimerPreviewLabel(); };
 

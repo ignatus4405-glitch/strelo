@@ -63,8 +63,9 @@ namespace StreloReminder.Forms
         private ListView _lvReminders;
         private Label _lblSummary;
 
-        // Состояние, облачная синхронизация и автообновление
+        // Состояние, облачная и локальная Wi-Fi синхронизация и автообновление
         private CloudSyncConfig _cloudConfig;
+        private LanSyncService _lanSyncService;
         private bool _isSyncInProgress;
         private int _secondsSinceLastSync;
 
@@ -84,14 +85,16 @@ namespace StreloReminder.Forms
         {
             _startMinimized = startMinimized;
             _cloudConfig = StorageService.LoadCloudConfig();
+            _lanSyncService = new LanSyncService(OnLanMergeFromPhone, OnLanGetRemindersSnapshot);
             InitializeComponent();
             InitializeTrayIcon();
             LoadSavedReminders();
+            UpdateLanServiceState();
             UpdateCloudStatusUI();
             UpdateTimerPreviewLabel();
             StartScheduler();
 
-            if (_cloudConfig.IsConfigured())
+            if (_cloudConfig.IsCloudConfigured())
             {
                 TriggerBackgroundCloudSync(false);
             }
@@ -1095,19 +1098,101 @@ namespace StreloReminder.Forms
             }
         }
 
-        private void UpdateCloudStatusUI()
+        private void UpdateLanServiceState()
         {
-            if (_cloudConfig == null || !_cloudConfig.IsConfigured())
+            if (_lanSyncService == null)
+                return;
+
+            if (_cloudConfig != null && _cloudConfig.LanWifiSyncEnabled)
             {
-                _lblSyncStatus.Text = "Облако: не настроено";
-                _lblSyncStatus.ForeColor = Color.FromArgb(191, 219, 254);
+                if (!_lanSyncService.IsRunning)
+                {
+                    _lanSyncService.Start(_cloudConfig.LanPort > 0 ? _cloudConfig.LanPort : LanSyncService.DefaultHttpPort);
+                }
             }
             else
             {
-                string mode = _cloudConfig.ProviderType == CloudProviderType.GitHubGist ? "GitHub Gist" : "Cloud URL";
-                _lblSyncStatus.Text = "Облако активно (" + mode + ")";
-                _lblSyncStatus.ForeColor = Color.FromArgb(167, 243, 208);
+                if (_lanSyncService.IsRunning)
+                {
+                    _lanSyncService.Stop();
+                }
             }
+        }
+
+        private List<ReminderItem> OnLanGetRemindersSnapshot()
+        {
+            try
+            {
+                if (!IsDisposed && IsHandleCreated)
+                {
+                    List<ReminderItem> snap = null;
+                    Invoke((MethodInvoker)delegate
+                    {
+                        snap = CloneRemindersList(_reminders);
+                    });
+                    return snap ?? new List<ReminderItem>();
+                }
+            }
+            catch
+            {
+            }
+            return CloneRemindersList(_reminders);
+        }
+
+        private List<ReminderItem> OnLanMergeFromPhone(List<ReminderItem> remotePhoneReminders, string phoneIpAddress)
+        {
+            try
+            {
+                if (!IsDisposed && IsHandleCreated)
+                {
+                    List<ReminderItem> mergedResult = null;
+                    Invoke((MethodInvoker)delegate
+                    {
+                        ApplyMergedRemindersFromCloud(remotePhoneReminders ?? new List<ReminderItem>());
+                        _lblSyncStatus.Text = string.Format("✓ Wi-Fi синхр. ({0}) в {1:HH:mm:ss}", phoneIpAddress, DateTime.Now);
+                        _lblSyncStatus.ForeColor = Color.FromArgb(167, 243, 208);
+                        mergedResult = CloneRemindersList(_reminders);
+                    });
+                    return mergedResult ?? new List<ReminderItem>();
+                }
+            }
+            catch
+            {
+            }
+            return CloneRemindersList(_reminders);
+        }
+
+        private void UpdateCloudStatusUI()
+        {
+            bool hasCloud = _cloudConfig != null && _cloudConfig.IsCloudConfigured();
+            bool hasLan = _cloudConfig != null && _cloudConfig.LanWifiSyncEnabled;
+
+            if (!hasCloud && !hasLan)
+            {
+                _lblSyncStatus.Text = "Синхронизация: отключена";
+                _lblSyncStatus.ForeColor = Color.FromArgb(191, 219, 254);
+                return;
+            }
+
+            List<string> activeParts = new List<string>();
+            if (hasCloud)
+            {
+                string mode = "Облако";
+                if (_cloudConfig.ProviderType == CloudProviderType.OneClickCloud)
+                    mode = "Облако 1-клик";
+                else if (_cloudConfig.ProviderType == CloudProviderType.GitHubGist)
+                    mode = "GitHub Gist";
+                else if (_cloudConfig.ProviderType == CloudProviderType.CustomJsonUrl)
+                    mode = "Cloud URL";
+                activeParts.Add(mode);
+            }
+            if (hasLan)
+            {
+                activeParts.Add("Wi-Fi (" + LanSyncService.GetPrimaryLanIp() + ")");
+            }
+
+            _lblSyncStatus.Text = "✓ " + string.Join(" + ", activeParts.ToArray());
+            _lblSyncStatus.ForeColor = Color.FromArgb(167, 243, 208);
         }
 
         private void OnOpenCloudSyncSettingsClick(object sender, EventArgs e)
@@ -1116,14 +1201,16 @@ namespace StreloReminder.Forms
             using (CloudSyncForm dlg = new CloudSyncForm(_cloudConfig, snapshot))
             {
                 DialogResult res = dlg.ShowDialog(this);
+                UpdateLanServiceState();
+                UpdateCloudStatusUI();
+
                 if (dlg.SyncTriggeredSuccessfully && dlg.SyncedReminders != null)
                 {
                     ApplyMergedRemindersFromCloud(dlg.SyncedReminders);
                 }
                 else if (res == DialogResult.OK)
                 {
-                    UpdateCloudStatusUI();
-                    if (_cloudConfig.IsConfigured())
+                    if (_cloudConfig.IsCloudConfigured())
                     {
                         TriggerBackgroundCloudSync(true);
                     }
@@ -1133,9 +1220,9 @@ namespace StreloReminder.Forms
 
         private void TriggerBackgroundCloudSync(bool forcePush)
         {
-            if (_cloudConfig == null || !_cloudConfig.IsConfigured())
+            if (_cloudConfig == null || !_cloudConfig.IsCloudConfigured())
             {
-                if (forcePush)
+                if (forcePush && (_cloudConfig == null || !_cloudConfig.LanWifiSyncEnabled))
                 {
                     OnOpenCloudSyncSettingsClick(this, EventArgs.Empty);
                 }
@@ -1154,9 +1241,13 @@ namespace StreloReminder.Forms
             CloudSyncConfig configSnapshot = new CloudSyncConfig
             {
                 ProviderType = _cloudConfig.ProviderType,
+                OneClickRoomId = _cloudConfig.OneClickRoomId,
                 GitHubToken = _cloudConfig.GitHubToken,
                 GistId = _cloudConfig.GistId,
                 CustomCloudUrl = _cloudConfig.CustomCloudUrl,
+                LanWifiSyncEnabled = _cloudConfig.LanWifiSyncEnabled,
+                LanPcIp = _cloudConfig.LanPcIp,
+                LanPort = _cloudConfig.LanPort,
                 AutoSyncIntervalSeconds = _cloudConfig.AutoSyncIntervalSeconds
             };
 
@@ -1172,7 +1263,10 @@ namespace StreloReminder.Forms
                             _isSyncInProgress = false;
                             if (syncRes.Success)
                             {
-                                _lblSyncStatus.Text = syncRes.Message;
+                                string wifiSuffix = (_cloudConfig != null && _cloudConfig.LanWifiSyncEnabled)
+                                    ? " + Wi-Fi"
+                                    : string.Empty;
+                                _lblSyncStatus.Text = "✓ " + syncRes.Message + wifiSuffix;
                                 _lblSyncStatus.ForeColor = Color.FromArgb(167, 243, 208);
                                 if (syncRes.LocalListUpdated && syncRes.MergedReminders != null)
                                 {
@@ -1771,6 +1865,10 @@ namespace StreloReminder.Forms
         {
             _isExiting = true;
             _mainTimer.Stop();
+            if (_lanSyncService != null)
+            {
+                _lanSyncService.Stop();
+            }
             StorageService.SaveReminders(_reminders);
             if (_notifyIcon != null)
             {

@@ -33,6 +33,8 @@ if defined CSC (
         Models\CloudSyncConfig.cs ^
         Services\StorageService.cs ^
         Services\CloudSyncService.cs ^
+        Services\LanSyncService.cs ^
+        Services\QrCodeGenerator.cs ^
         Services\UpdateService.cs ^
         Services\IconGenerator.cs ^
         Forms\PopupNotificationForm.cs ^

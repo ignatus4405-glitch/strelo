@@ -31,7 +31,9 @@ StreloReminder/
 ├── Services/
 │   ├── IconGenerator.cs            # Программная отрисовка иконки колокольчика через System.Drawing (GDI+)
 │   ├── StorageService.cs           # Сериализация напоминаний и настроек облака в %APPDATA%\StreloReminder\
-│   ├── CloudSyncService.cs         # Двусторонняя синхронизация и слияние (MergeReminders) через GitHub Gist / Cloud URL
+│   ├── CloudSyncService.cs         # Двусторонняя синхронизация (Облако в 1 клик, GitHub Gist, Cloud URL)
+│   ├── LanSyncService.cs           # Локальный Wi-Fi HTTP/JSON сервер (порт 45892) + UDP автообнаружение ПК (порт 45891)
+│   ├── QrCodeGenerator.cs          # Генератор стандартных QR-кодов ISO/IEC 18004 (Bitmap) для привязки телефона
 │   └── UpdateService.cs            # Автопроверка обновлений через GitHub Releases API и самообновление StreloReminder.exe
 ├── android/                        # Нативное мобильное приложение для Android (Java, minSdk 24, targetSdk 34)
 │   ├── settings.gradle, build.gradle, gradle.properties
@@ -41,13 +43,15 @@ StreloReminder/
 │           ├── AndroidManifest.xml
 │           ├── res/drawable/ic_bell.xml
 │           └── java/com/strelo/reminder/
-│               ├── MainActivity.java           # Главный экран Android: список, редактор 6 единиц времени, облако, обновления
+│               ├── MainActivity.java           # Главный экран Android: список, редактор 6 единиц времени, облако, Wi-Fi, обновления
 │               ├── ReminderAlertActivity.java  # Всплывающее окно уведомления на Android (звук, вибрация, Snooze)
 │               ├── AlarmScheduler.java         # Планировщик точных будильников AlarmManager + NotificationChannel
 │               ├── ReminderAlarmReceiver.java  # BroadcastReceiver срабатывания будильников и BOOT_COMPLETED
 │               ├── ReminderItem.java           # Модель напоминания (100% совместимая по JSON с Windows ReminderItem.cs)
-│               ├── CloudSyncConfig.java        # Настройки облака и парсер кода STRELO1:...
-│               ├── CloudSyncService.java       # Двусторонняя синхронизация Android ↔ Облако ↔ ПК
+│               ├── CloudSyncConfig.java        # Настройки Облака 1-клик / Gist / URL + Wi-Fi LAN и парсер strelo://sync
+│               ├── CloudSyncService.java       # Гибридная синхронизация Android ↔ Wi-Fi ПК + Облако
+│               ├── LanSyncService.java         # Автопоиск ПК в сети Wi-Fi (UDP 45891 + TCP 45892) и прямой обмен
+│               ├── QrCodeGenerator.java        # Генератор стандартных QR-кодов ISO/IEC 18004 на Android
 │               ├── UpdateService.java          # Проверка выхода новой версии APK через GitHub Releases API
 │               └── StorageService.java         # Хранение данных в SharedPreferences
 ├── Program.cs                      # Точка входа Windows (Main), защита от повторного запуска через именованный Mutex

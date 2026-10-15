@@ -53,11 +53,94 @@ namespace StreloReminder.Services
         {
             try
             {
-                // Включаем поддержку TLS 1.2 (3072) для .NET Framework 4.x при обращении к api.github.com
+                // Включаем поддержку TLS 1.2 (3072) для .NET Framework 4.x
                 ServicePointManager.SecurityProtocol |= (SecurityProtocolType)3072;
             }
             catch
             {
+            }
+        }
+
+        /// <summary>
+        /// Создаёт «Облако в 1 клик» без регистрации и токенов.
+        /// Возвращает короткий идентификатор комнаты (roomId) и полный URL облачной ячейки.
+        /// </summary>
+        public static bool CreateOneClickCloudRoom(
+            List<ReminderItem> initialReminders,
+            out string roomId,
+            out string cloudUrl,
+            out string errorMessage)
+        {
+            roomId = string.Empty;
+            cloudUrl = string.Empty;
+            errorMessage = string.Empty;
+
+            string remindersJson = StorageService.SerializeRemindersToJson(initialReminders ?? new List<ReminderItem>());
+            if (string.IsNullOrWhiteSpace(remindersJson))
+            {
+                remindersJson = "[]";
+            }
+
+            try
+            {
+                HttpWebRequest request = (HttpWebRequest)WebRequest.Create("https://jsonblob.com/api/jsonBlob");
+                request.Method = "POST";
+                request.UserAgent = "StreloReminder-SyncClient/1.4";
+                request.ContentType = "application/json; charset=utf-8";
+                request.Accept = "application/json";
+                request.Timeout = 15000;
+                request.ReadWriteTimeout = 15000;
+
+                byte[] bodyBytes = Encoding.UTF8.GetBytes(remindersJson);
+                request.ContentLength = bodyBytes.Length;
+                using (Stream reqStream = request.GetRequestStream())
+                {
+                    reqStream.Write(bodyBytes, 0, bodyBytes.Length);
+                }
+
+                using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+                {
+                    string location = response.Headers["Location"] ?? response.Headers["location"] ?? string.Empty;
+                    string blobHeader = response.Headers["X-jsonblob"] ?? response.Headers["x-jsonblob"] ?? string.Empty;
+
+                    if (!string.IsNullOrWhiteSpace(blobHeader))
+                    {
+                        roomId = blobHeader.Trim();
+                    }
+                    else if (!string.IsNullOrWhiteSpace(location))
+                    {
+                        int lastSlash = location.TrimEnd('/').LastIndexOf('/');
+                        if (lastSlash >= 0 && lastSlash + 1 < location.Length)
+                        {
+                            roomId = location.Substring(lastSlash + 1).Trim();
+                        }
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(roomId))
+                    {
+                        cloudUrl = "https://jsonblob.com/api/jsonBlob/" + roomId;
+                        return true;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(location))
+                    {
+                        cloudUrl = location.Trim();
+                        if (cloudUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+                        {
+                            cloudUrl = "https://" + cloudUrl.Substring(7);
+                        }
+                        roomId = cloudUrl;
+                        return true;
+                    }
+                }
+
+                errorMessage = "Облачный сервис не вернул идентификатор созданной комнаты.";
+                return false;
+            }
+            catch (Exception ex)
+            {
+                errorMessage = "Не удалось создать облако в 1 клик: " + ex.Message;
+                return false;
             }
         }
 
@@ -131,7 +214,7 @@ namespace StreloReminder.Services
                 LocalListUpdated = false
             };
 
-            if (config == null || !config.IsConfigured())
+            if (config == null || !config.IsCloudConfigured())
             {
                 result.Message = "Облачная синхронизация не настроена.";
                 return result;
@@ -159,13 +242,13 @@ namespace StreloReminder.Services
                 result.Success = true;
                 result.MergedReminders = merged;
                 result.LocalListUpdated = hasRemoteChanges;
-                result.Message = string.Format("Синхронизировано ({0:HH:mm:ss})", DateTime.Now);
+                result.Message = string.Format("Облако синхр. ({0:HH:mm:ss})", DateTime.Now);
                 return result;
             }
             catch (Exception ex)
             {
                 result.Success = false;
-                result.Message = "Ошибка синхр.: " + ex.Message;
+                result.Message = "Ошибка облака: " + ex.Message;
                 return result;
             }
         }
@@ -248,6 +331,18 @@ namespace StreloReminder.Services
 
         private static string FetchRemoteRemindersJson(CloudSyncConfig config)
         {
+            if (config.ProviderType == CloudProviderType.OneClickCloud)
+            {
+                string url = config.GetEffectiveOneClickUrl();
+                if (string.IsNullOrWhiteSpace(url))
+                    return "[]";
+                string response = SendHttpRequest(url, "GET", null, null);
+                if (string.IsNullOrWhiteSpace(response) || response.Trim() == "null")
+                {
+                    return "[]";
+                }
+                return response;
+            }
             if (config.ProviderType == CloudProviderType.GitHubGist)
             {
                 string url = "https://api.github.com/gists/" + config.GistId.Trim();
@@ -273,7 +368,15 @@ namespace StreloReminder.Services
 
         private static void PushRemoteRemindersJson(CloudSyncConfig config, string remindersJson)
         {
-            if (config.ProviderType == CloudProviderType.GitHubGist)
+            if (config.ProviderType == CloudProviderType.OneClickCloud)
+            {
+                string url = config.GetEffectiveOneClickUrl();
+                if (!string.IsNullOrWhiteSpace(url))
+                {
+                    SendHttpRequest(url, "PUT", null, string.IsNullOrWhiteSpace(remindersJson) ? "[]" : remindersJson);
+                }
+            }
+            else if (config.ProviderType == CloudProviderType.GitHubGist)
             {
                 string url = "https://api.github.com/gists/" + config.GistId.Trim();
                 GistPayload payload = new GistPayload
@@ -323,7 +426,7 @@ namespace StreloReminder.Services
         {
             HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
             request.Method = method;
-            request.UserAgent = "StreloReminder-SyncClient/1.0";
+            request.UserAgent = "StreloReminder-SyncClient/1.4";
             request.Accept = "application/vnd.github+json, application/json";
             request.Timeout = 15000;
             request.ReadWriteTimeout = 15000;

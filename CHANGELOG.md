@@ -4,6 +4,43 @@
 
 ---
 
+## [2026-10-15] — Реализация «Облака в 1 клик + QR-код» (без токенов) и «Локальной синхронизации по Wi-Fi с автопоиском ПК»
+
+### Что сделано
+1. **«Облако в 1 клик» без регистрации и токенов (`Models/CloudSyncConfig.cs`, `Services/CloudSyncService.cs`, `CloudSyncConfig.java`, `CloudSyncService.java`)**:
+   - Добавлен новый провайдер облачной синхронизации `CloudProviderType.OneClickCloud = 3` (`PROVIDER_ONE_CLICK_CLOUD = 3`).
+   - Реализован метод `CreateOneClickCloudRoom` / `createOneClickCloudRoom`, который по нажатию одной кнопки **«☁ Создать новое Облако в 1 клик»** автоматически выделяет приватную облачную JSON-комнату (`https://jsonblob.com/api/jsonBlob/<roomId>`) без ввода каких-либо токенов, паролей или регистрации.
+   - На втором устройстве достаточно отсканировать QR-код, вставить код подключения или ввести короткий ID комнаты.
+2. **Генерация стандартизированного QR-кода и автопривязка камерой (`Services/QrCodeGenerator.cs`, `QrCodeGenerator.java`, `AndroidManifest.xml`)**:
+   - Написан полностью автономный генератор QR-кодов стандарта **ISO/IEC 18004** (Byte Mode, коррекция ошибок Reed-Solomon в поле Галуа GF(256), версии 1..20) без сторонних библиотек для Windows (`System.Drawing.Bitmap`) и Android (`android.graphics.Bitmap`).
+   - QR-код кодирует deep-link `strelo://sync?code=STRELO1:...`, содержащий одновременно параметры Облака в 1 клик и локальный Wi-Fi IP-адрес компьютера.
+   - В `AndroidManifest.xml` зарегистрирован `<intent-filter>` для схемы `strelo://sync`, а в `MainActivity.java` добавлен обработчик `handleIncomingDeepLink`: при наведении стандартной камеры телефона на экран ПК автоматически открывается приложение `StreloReminder`, сохраняет настройки и запускает синхронизацию.
+3. **Локальная синхронизация по домашнему Wi-Fi с автопоиском ПК (`Services/LanSyncService.cs`, `LanSyncService.java`, `Forms/MainForm.cs`, `MainActivity.java`)**:
+   - На **Windows (`Services/LanSyncService.cs`)**:
+     - Запускается фоновый **UDP-ответчик автообнаружения** на порту `45891` (`STRELO_DISCOVER_V1` -> `STRELO_PC_V1|<ИмяПК>|45892|<IP>`) и встроенный **HTTP/JSON сервер на базе `TcpListener`** (порт `45892`, не требует прав администратора Windows).
+     - При обращении телефона к `POST /strelo/sync` ПК мгновенно выполняет двустороннее слияние (`MergeReminders`), обновляет таблицу на экране ПК и возвращает объединённый список напоминаний телефону за ~15–20 мс.
+   - На **Android (`LanSyncService.java`, `MainActivity.java`)**:
+     - Добавлена кнопка **«📡 Найти компьютер в сети Wi-Fi автоматически»**: отправляет широковещательный UDP-запрос на порт `45891`, а если роутер блокирует UDP Broadcast — выполняет быстрое многопоточное TCP-сканирование локальной подсети `/24` по порту `45892`.
+     - Реализован **гибридный режим синхронизации**: когда телефон находится дома в одной сети Wi-Fi с ПК, синхронизация идёт напрямую по локальной сети без задержек, а вне дома — автоматически переключается на Облако в 1 клик.
+
+### Затронутые файлы
+- `Models/CloudSyncConfig.cs` (обновлён)
+- `Services/CloudSyncService.cs` (обновлён)
+- `Services/QrCodeGenerator.cs` (создан)
+- `Services/LanSyncService.cs` (создан)
+- `Forms/CloudSyncForm.cs` (обновлён)
+- `Forms/MainForm.cs` (обновлён)
+- `build.bat`, `.github/workflows/build.yml` (обновлены)
+- `android/app/src/main/AndroidManifest.xml` (обновлён)
+- `android/app/src/main/java/com/strelo/reminder/CloudSyncConfig.java` (обновлён)
+- `android/app/src/main/java/com/strelo/reminder/CloudSyncService.java` (обновлён)
+- `android/app/src/main/java/com/strelo/reminder/QrCodeGenerator.java` (создан)
+- `android/app/src/main/java/com/strelo/reminder/LanSyncService.java` (создан)
+- `android/app/src/main/java/com/strelo/reminder/MainActivity.java` (обновлён)
+- `AGENTS.md`, `README.md`, `CHANGELOG.md` (обновлены)
+
+---
+
 ## [2026-10-15] — Исправление размеров кнопок и перекрытий (Windows + Android) и система автоматического обновления версий через GitHub Releases
 
 ### Что сделано

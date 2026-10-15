@@ -37,6 +37,7 @@ import android.widget.CheckBox;
 import android.widget.CompoundButton;
 import android.widget.DatePicker;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
@@ -102,7 +103,35 @@ public class MainActivity extends Activity {
         cloudConfig = StorageService.loadCloudConfig(this);
         buildMainUi();
         reloadFromStorage();
+        handleIncomingDeepLink(getIntent());
         updateCloudStatusHeader();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleIncomingDeepLink(intent);
+    }
+
+    private void handleIncomingDeepLink(Intent intent) {
+        if (intent == null || intent.getData() == null) return;
+        Uri uri = intent.getData();
+        if ("strelo".equalsIgnoreCase(uri.getScheme())) {
+            String raw = uri.toString();
+            CloudSyncConfig parsed = CloudSyncConfig.fromConnectionCode(raw);
+            if (parsed != null) {
+                cloudConfig = parsed;
+                StorageService.saveCloudConfig(this, cloudConfig);
+                updateCloudStatusHeader();
+                Toast.makeText(
+                        this,
+                        "✓ Настройки синхронизации с ПК успешно применены по QR-коду!",
+                        Toast.LENGTH_LONG
+                ).show();
+                triggerBackgroundSync(true);
+            }
+        }
     }
 
     @Override
@@ -1240,11 +1269,48 @@ public class MainActivity extends Activity {
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(dp(16), dp(12), dp(16), dp(12));
 
+        // 1. БЛОК ЛОКАЛЬНОЙ СИНХРОНИЗАЦИИ ПО ДОМАШНЕМУ WI-FI (С АВТОПОИСКОМ ПК)
+        TextView lblLanSection = new TextView(this);
+        lblLanSection.setText("📡 Локальная синхронизация по Wi-Fi (без интернета):");
+        lblLanSection.setTypeface(Typeface.DEFAULT_BOLD);
+        lblLanSection.setTextColor(Color.parseColor("#166534"));
+        lblLanSection.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        layout.addView(lblLanSection);
+
+        final CheckBox cbLanWifi = new CheckBox(this);
+        cbLanWifi.setText("Мгновенная синхронизация с ПК по домашнему Wi-Fi");
+        cbLanWifi.setChecked(cloudConfig.lanWifiSyncEnabled);
+        layout.addView(cbLanWifi);
+
+        final EditText etLanIp = new EditText(this);
+        etLanIp.setHint("IP компьютера в Wi-Fi (пусто = автопоиск)");
+        etLanIp.setText(cloudConfig.lanPcIp);
+        layout.addView(etLanIp);
+
+        final Button btnDiscoverPc = createButton("📡 Найти компьютер в сети Wi-Fi автоматически", "#DCFCE7", "#166534");
+        btnDiscoverPc.setMinHeight(dp(42));
+        LinearLayout.LayoutParams discLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        discLp.topMargin = dp(4);
+        discLp.bottomMargin = dp(12);
+        btnDiscoverPc.setLayoutParams(discLp);
+        layout.addView(btnDiscoverPc);
+
+        // 2. БЫСТРОЕ ПОДКЛЮЧЕНИЕ ПО КОДУ ИЛИ QR-КОДУ
         TextView tvIntro = new TextView(this);
-        tvIntro.setText("Быстрое подключение: скопируйте код подключения в программе Strelo на компьютере (кнопка «Облако (Android)») и нажмите кнопку ниже:");
-        tvIntro.setTextColor(Color.parseColor("#334155"));
-        tvIntro.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        tvIntro.setText("📱 Быстрая привязка по QR-коду или коду с ПК:");
+        tvIntro.setTypeface(Typeface.DEFAULT_BOLD);
+        tvIntro.setTextColor(Color.parseColor("#1E40AF"));
+        tvIntro.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         layout.addView(tvIntro);
+
+        TextView tvQrHint = new TextView(this);
+        tvQrHint.setText("Наведите камеру телефона на QR-код в окне «Облако (Android)» на ПК или вставьте скопированный код:");
+        tvQrHint.setTextColor(Color.parseColor("#475569"));
+        tvQrHint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+        layout.addView(tvQrHint);
 
         LinearLayout codeBtnRow = new LinearLayout(this);
         codeBtnRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -1273,21 +1339,47 @@ public class MainActivity extends Activity {
         codeBtnRow.addView(btnCopyCode);
         layout.addView(codeBtnRow);
 
+        // 3. РЕЖИМ ИНТЕРНЕТ-ОБЛАКА (ВКЛЮЧАЯ «ОБЛАКО В 1 КЛИК» БЕЗ ТОКЕНОВ)
         TextView lblMode = new TextView(this);
-        lblMode.setText("Способ облачной синхронизации:");
+        lblMode.setText("☁ Способ облачной синхронизации через интернет:");
         lblMode.setTypeface(Typeface.DEFAULT_BOLD);
+        lblMode.setTextColor(Color.parseColor("#0F172A"));
+        lblMode.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         layout.addView(lblMode);
 
         final Spinner spProvider = new Spinner(this);
         String[] providers = new String[]{
-                "Отключено (только локально)",
-                "GitHub Gist (бесплатное облако)",
-                "Прямой облачный JSON URL"
+                "Отключено (только по домашнему Wi-Fi)",
+                "GitHub Gist (через токен GitHub)",
+                "Прямой облачный JSON URL",
+                "⭐ Облако в 1 клик (без токенов и регистрации)"
         };
         spProvider.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, providers));
-        spProvider.setSelection(cloudConfig.providerTypeValue);
+        int initialProvider = cloudConfig.providerTypeValue;
+        if (initialProvider < 0 || initialProvider > 3) {
+            initialProvider = CloudSyncConfig.PROVIDER_ONE_CLICK_CLOUD;
+        }
+        spProvider.setSelection(initialProvider);
         layout.addView(spProvider);
 
+        // Поля для «Облако в 1 клик»
+        final EditText etOneClickRoom = new EditText(this);
+        etOneClickRoom.setHint("ID комнаты Облака в 1 клик (создаётся автоматически)");
+        etOneClickRoom.setText(cloudConfig.oneClickRoomId);
+        layout.addView(etOneClickRoom);
+
+        final Button btnCreateOneClick = createButton("☁ Создать Облако в 1 клик (без токенов)", "#2563EB", "#FFFFFF");
+        btnCreateOneClick.setMinHeight(dp(42));
+        LinearLayout.LayoutParams ocLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        ocLp.topMargin = dp(4);
+        ocLp.bottomMargin = dp(8);
+        btnCreateOneClick.setLayoutParams(ocLp);
+        layout.addView(btnCreateOneClick);
+
+        // Поля для GitHub Gist
         final EditText etToken = new EditText(this);
         etToken.setHint("GitHub Token (с правом gist)");
         etToken.setText(cloudConfig.gitHubToken);
@@ -1308,6 +1400,7 @@ public class MainActivity extends Activity {
         btnCreateGist.setLayoutParams(cgLp);
         layout.addView(btnCreateGist);
 
+        // Поле для прямого URL
         final EditText etCustomUrl = new EditText(this);
         etCustomUrl.setHint("HTTPS URL облачного JSON (GET/PUT)");
         etCustomUrl.setText(cloudConfig.customCloudUrl);
@@ -1323,19 +1416,128 @@ public class MainActivity extends Activity {
         etInterval.setText(String.valueOf(cloudConfig.autoSyncIntervalSeconds));
         layout.addView(etInterval);
 
+        // Отображение QR-кода текущих настроек
+        final ImageView ivQr = new ImageView(this);
+        LinearLayout.LayoutParams qrLp = new LinearLayout.LayoutParams(dp(150), dp(150));
+        qrLp.gravity = Gravity.CENTER_HORIZONTAL;
+        qrLp.topMargin = dp(10);
+        ivQr.setLayoutParams(qrLp);
+        layout.addView(ivQr);
+
+        final Runnable updateQrPreview = new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    CloudSyncConfig temp = new CloudSyncConfig();
+                    temp.providerTypeValue = spProvider.getSelectedItemPosition();
+                    temp.oneClickRoomId = etOneClickRoom.getText().toString().trim();
+                    temp.gitHubToken = etToken.getText().toString().trim();
+                    temp.gistId = etGistId.getText().toString().trim();
+                    temp.customCloudUrl = etCustomUrl.getText().toString().trim();
+                    temp.lanWifiSyncEnabled = cbLanWifi.isChecked();
+                    temp.lanPcIp = etLanIp.getText().toString().trim();
+                    String payload = temp.toQrDeepLink();
+                    if (payload.isEmpty()) payload = "STRELO";
+                    ivQr.setImageBitmap(QrCodeGenerator.generateQrBitmap(payload, dp(150)));
+                } catch (Exception ignored) {
+                }
+            }
+        };
+
         spProvider.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                boolean isOneClick = (position == CloudSyncConfig.PROVIDER_ONE_CLICK_CLOUD);
                 boolean isGist = (position == CloudSyncConfig.PROVIDER_GITHUB_GIST);
                 boolean isUrl = (position == CloudSyncConfig.PROVIDER_CUSTOM_URL);
+
+                etOneClickRoom.setVisibility(isOneClick ? View.VISIBLE : View.GONE);
+                btnCreateOneClick.setVisibility(isOneClick ? View.VISIBLE : View.GONE);
+
                 etToken.setVisibility(isGist ? View.VISIBLE : View.GONE);
                 etGistId.setVisibility(isGist ? View.VISIBLE : View.GONE);
                 btnCreateGist.setVisibility(isGist ? View.VISIBLE : View.GONE);
+
                 etCustomUrl.setVisibility(isUrl ? View.VISIBLE : View.GONE);
+                updateQrPreview.run();
             }
 
             @Override
             public void onNothingSelected(AdapterView<?> parent) {}
+        });
+
+        btnDiscoverPc.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                btnDiscoverPc.setText("Поиск ПК в сети Wi-Fi...");
+                btnDiscoverPc.setEnabled(false);
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        final LanSyncService.DiscoveredPc found = LanSyncService.discoverPcInLan(1500);
+                        mainHandler.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                btnDiscoverPc.setEnabled(true);
+                                btnDiscoverPc.setText("📡 Найти компьютер в сети Wi-Fi автоматически");
+                                if (found.found) {
+                                    cbLanWifi.setChecked(true);
+                                    etLanIp.setText(found.ipAddress);
+                                    cloudConfig.lanWifiSyncEnabled = true;
+                                    cloudConfig.lanPcIp = found.ipAddress;
+                                    cloudConfig.lanPort = found.port;
+                                    StorageService.saveCloudConfig(MainActivity.this, cloudConfig);
+                                    updateCloudStatusHeader();
+                                    updateQrPreview.run();
+                                    Toast.makeText(
+                                            MainActivity.this,
+                                            "✓ Найден ПК «" + found.pcName + "» (" + found.ipAddress + ")!",
+                                            Toast.LENGTH_LONG
+                                    ).show();
+                                    triggerBackgroundSync(true);
+                                } else {
+                                    Toast.makeText(MainActivity.this, found.errorMessage, Toast.LENGTH_LONG).show();
+                                }
+                            }
+                        });
+                    }
+                }).start();
+            }
+        });
+
+        btnCreateOneClick.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                btnCreateOneClick.setEnabled(false);
+                btnCreateOneClick.setText("Создание облака в 1 клик...");
+                final List<ReminderItem> snapshot = new ArrayList<>(reminders);
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        final CloudSyncService.CreateOneClickResult res = CloudSyncService.createOneClickCloudRoom(snapshot);
+                        mainHandler.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                btnCreateOneClick.setEnabled(true);
+                                btnCreateOneClick.setText("☁ Создать Облако в 1 клик (без токенов)");
+                                if (res.success) {
+                                    spProvider.setSelection(CloudSyncConfig.PROVIDER_ONE_CLICK_CLOUD);
+                                    etOneClickRoom.setText(res.roomId);
+                                    etCustomUrl.setText(res.cloudUrl);
+                                    updateQrPreview.run();
+                                    Toast.makeText(
+                                            MainActivity.this,
+                                            "✓ Облако в 1 клик создано! Комната: " + res.roomId,
+                                            Toast.LENGTH_LONG
+                                    ).show();
+                                } else {
+                                    Toast.makeText(MainActivity.this, res.errorMessage, Toast.LENGTH_LONG).show();
+                                }
+                            }
+                        });
+                    }
+                }).start();
+            }
         });
 
         btnPasteCode.setOnClickListener(new View.OnClickListener() {
@@ -1346,16 +1548,20 @@ public class MainActivity extends Activity {
                     CharSequence text = cm.getPrimaryClip().getItemAt(0).getText();
                     CloudSyncConfig parsed = CloudSyncConfig.fromConnectionCode(text != null ? text.toString() : "");
                     if (parsed != null) {
-                        spProvider.setSelection(parsed.providerTypeValue);
+                        spProvider.setSelection(Math.max(0, Math.min(3, parsed.providerTypeValue)));
+                        etOneClickRoom.setText(parsed.oneClickRoomId);
                         etToken.setText(parsed.gitHubToken);
                         etGistId.setText(parsed.gistId);
                         etCustomUrl.setText(parsed.customCloudUrl);
+                        cbLanWifi.setChecked(parsed.lanWifiSyncEnabled);
+                        etLanIp.setText(parsed.lanPcIp);
                         etInterval.setText(String.valueOf(parsed.autoSyncIntervalSeconds));
-                        Toast.makeText(MainActivity.this, "Код подключения успешно загружен!", Toast.LENGTH_SHORT).show();
+                        updateQrPreview.run();
+                        Toast.makeText(MainActivity.this, "✓ Код подключения успешно загружен!", Toast.LENGTH_SHORT).show();
                         return;
                     }
                 }
-                Toast.makeText(MainActivity.this, "В буфере обмена не найден код STRELO1:...", Toast.LENGTH_SHORT).show();
+                Toast.makeText(MainActivity.this, "В буфере обмена не найден код STRELO1:... или ID комнаты", Toast.LENGTH_SHORT).show();
             }
         });
 
@@ -1364,21 +1570,20 @@ public class MainActivity extends Activity {
             public void onClick(View v) {
                 CloudSyncConfig temp = new CloudSyncConfig();
                 temp.providerTypeValue = spProvider.getSelectedItemPosition();
+                temp.oneClickRoomId = etOneClickRoom.getText().toString().trim();
                 temp.gitHubToken = etToken.getText().toString().trim();
                 temp.gistId = etGistId.getText().toString().trim();
                 temp.customCloudUrl = etCustomUrl.getText().toString().trim();
+                temp.lanWifiSyncEnabled = cbLanWifi.isChecked();
+                temp.lanPcIp = etLanIp.getText().toString().trim();
                 try {
                     temp.autoSyncIntervalSeconds = Math.max(10, Integer.parseInt(etInterval.getText().toString().trim()));
                 } catch (Exception ignored) {
                 }
-                if (!temp.isConfigured()) {
-                    Toast.makeText(MainActivity.this, "Сначала заполните настройки облака", Toast.LENGTH_SHORT).show();
-                    return;
-                }
                 ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                 if (cm != null) {
                     cm.setPrimaryClip(ClipData.newPlainText("StreloSyncCode", temp.toConnectionCode()));
-                    Toast.makeText(MainActivity.this, "Код скопирован! Вставьте его на ПК.", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(MainActivity.this, "✓ Код скопирован! Вставьте его на ПК.", Toast.LENGTH_SHORT).show();
                 }
             }
         });
@@ -1388,7 +1593,7 @@ public class MainActivity extends Activity {
             public void onClick(View v) {
                 final String token = etToken.getText().toString().trim();
                 if (token.isEmpty()) {
-                    Toast.makeText(MainActivity.this, "Введите GitHub Token", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(MainActivity.this, "Введите GitHub Token или выберите «Облако в 1 клик»", Toast.LENGTH_SHORT).show();
                     return;
                 }
                 Toast.makeText(MainActivity.this, "Создание облака Gist...", Toast.LENGTH_SHORT).show();
@@ -1402,6 +1607,7 @@ public class MainActivity extends Activity {
                             public void run() {
                                 if (res.success) {
                                     etGistId.setText(res.gistId);
+                                    updateQrPreview.run();
                                     Toast.makeText(MainActivity.this, "Облако создано! ID: " + res.gistId, Toast.LENGTH_LONG).show();
                                 } else {
                                     Toast.makeText(MainActivity.this, res.errorMessage, Toast.LENGTH_LONG).show();
@@ -1413,22 +1619,26 @@ public class MainActivity extends Activity {
             }
         });
 
+        updateQrPreview.run();
         scroll.addView(layout);
 
         new AlertDialog.Builder(this)
-                .setTitle("Облачная синхронизация (Android ↔ ПК)")
+                .setTitle("Синхронизация (Облако 1-клик + QR + Wi-Fi)")
                 .setView(scroll)
                 .setPositiveButton("Сохранить и синхр.", new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
                         cloudConfig.providerTypeValue = spProvider.getSelectedItemPosition();
+                        cloudConfig.oneClickRoomId = etOneClickRoom.getText().toString().trim();
                         cloudConfig.gitHubToken = etToken.getText().toString().trim();
                         cloudConfig.gistId = etGistId.getText().toString().trim();
                         cloudConfig.customCloudUrl = etCustomUrl.getText().toString().trim();
+                        cloudConfig.lanWifiSyncEnabled = cbLanWifi.isChecked();
+                        cloudConfig.lanPcIp = etLanIp.getText().toString().trim();
                         try {
                             cloudConfig.autoSyncIntervalSeconds = Math.max(10, Integer.parseInt(etInterval.getText().toString().trim()));
                         } catch (Exception e) {
-                            cloudConfig.autoSyncIntervalSeconds = 20;
+                            cloudConfig.autoSyncIntervalSeconds = 15;
                         }
                         StorageService.saveCloudConfig(MainActivity.this, cloudConfig);
                         updateCloudStatusHeader();
@@ -1443,15 +1653,35 @@ public class MainActivity extends Activity {
 
     private void updateCloudStatusHeader() {
         if (cloudConfig == null || !cloudConfig.isConfigured()) {
-            tvCloudStatus.setText("Облако: не настроено (нажмите «Облако (ПК)»)");
+            tvCloudStatus.setText("Синхр.: не настроено (нажмите «Облако (ПК)»)");
             tvCloudStatus.setTextColor(Color.parseColor("#BFDBFE"));
-        } else {
-            String mode = cloudConfig.providerTypeValue == CloudSyncConfig.PROVIDER_GITHUB_GIST
-                    ? "GitHub Gist"
-                    : "Cloud URL";
-            tvCloudStatus.setText("Облако активно (" + mode + ")");
-            tvCloudStatus.setTextColor(Color.parseColor("#A7F3D0"));
+            return;
         }
+
+        List<String> modes = new ArrayList<>();
+        if (cloudConfig.isCloudConfigured()) {
+            if (cloudConfig.providerTypeValue == CloudSyncConfig.PROVIDER_ONE_CLICK_CLOUD) {
+                modes.add("Облако 1-клик");
+            } else if (cloudConfig.providerTypeValue == CloudSyncConfig.PROVIDER_GITHUB_GIST) {
+                modes.add("GitHub Gist");
+            } else if (cloudConfig.providerTypeValue == CloudSyncConfig.PROVIDER_CUSTOM_URL) {
+                modes.add("Cloud URL");
+            }
+        }
+        if (cloudConfig.lanWifiSyncEnabled) {
+            String ipPart = (cloudConfig.lanPcIp != null && !cloudConfig.lanPcIp.trim().isEmpty())
+                    ? ("Wi-Fi " + cloudConfig.lanPcIp.trim())
+                    : "Wi-Fi автопоиск";
+            modes.add(ipPart);
+        }
+
+        StringBuilder sb = new StringBuilder("✓ ");
+        for (int i = 0; i < modes.size(); i++) {
+            if (i > 0) sb.append(" + ");
+            sb.append(modes.get(i));
+        }
+        tvCloudStatus.setText(sb.toString());
+        tvCloudStatus.setTextColor(Color.parseColor("#A7F3D0"));
     }
 
     private void triggerBackgroundSync(final boolean forcePush) {
@@ -1460,7 +1690,7 @@ public class MainActivity extends Activity {
         }
         isSyncInProgress = true;
         secondsSinceLastSync = 0;
-        tvCloudStatus.setText("Синхронизация с облаком...");
+        tvCloudStatus.setText("Синхронизация с ПК / облаком...");
 
         final List<ReminderItem> snapshot = new ArrayList<>();
         for (ReminderItem r : reminders) {
@@ -1470,13 +1700,17 @@ public class MainActivity extends Activity {
         new Thread(new Runnable() {
             @Override
             public void run() {
+                final String oldIp = cloudConfig.lanPcIp;
                 final CloudSyncService.SyncResult res = CloudSyncService.synchronize(cloudConfig, snapshot, forcePush);
                 mainHandler.post(new Runnable() {
                     @Override
                     public void run() {
                         isSyncInProgress = false;
+                        if (cloudConfig.lanPcIp != null && !cloudConfig.lanPcIp.equals(oldIp)) {
+                            StorageService.saveCloudConfig(MainActivity.this, cloudConfig);
+                        }
                         if (res.success) {
-                            tvCloudStatus.setText("Облако: " + res.message);
+                            tvCloudStatus.setText("✓ " + res.message);
                             tvCloudStatus.setTextColor(Color.parseColor("#A7F3D0"));
                             if (res.localListUpdated && res.mergedReminders != null) {
                                 boolean[] dummy = new boolean[2];

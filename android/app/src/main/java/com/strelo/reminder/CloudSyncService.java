@@ -34,6 +34,86 @@ public class CloudSyncService {
         public String errorMessage;
     }
 
+    public static class CreateOneClickResult {
+        public boolean success;
+        public String roomId = "";
+        public String cloudUrl = "";
+        public String errorMessage = "";
+    }
+
+    /**
+     * Создаёт новое «Облако в 1 клик» без регистрации и токенов.
+     */
+    public static CreateOneClickResult createOneClickCloudRoom(List<ReminderItem> initialReminders) {
+        CreateOneClickResult res = new CreateOneClickResult();
+        String remindersJson = StorageService.serializeReminders(initialReminders);
+        if (remindersJson == null || remindersJson.trim().isEmpty()) {
+            remindersJson = "[]";
+        }
+
+        HttpURLConnection conn = null;
+        try {
+            URL url = new URL("https://jsonblob.com/api/jsonBlob");
+            conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setConnectTimeout(15000);
+            conn.setReadTimeout(15000);
+            conn.setRequestProperty("User-Agent", "StreloReminder-Android/1.4");
+            conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            conn.setRequestProperty("Accept", "application/json");
+            conn.setDoOutput(true);
+
+            byte[] bytes = remindersJson.getBytes(StandardCharsets.UTF_8);
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(bytes);
+                os.flush();
+            }
+
+            int code = conn.getResponseCode();
+            if (code >= 200 && code < 300) {
+                String location = conn.getHeaderField("Location");
+                if (location == null || location.isEmpty()) {
+                    location = conn.getHeaderField("location");
+                }
+                String blobHeader = conn.getHeaderField("X-jsonblob");
+                if (blobHeader == null || blobHeader.isEmpty()) {
+                    blobHeader = conn.getHeaderField("x-jsonblob");
+                }
+
+                if (blobHeader != null && !blobHeader.trim().isEmpty()) {
+                    res.roomId = blobHeader.trim();
+                } else if (location != null && !location.trim().isEmpty()) {
+                    String cleanLoc = location.trim();
+                    while (cleanLoc.endsWith("/")) {
+                        cleanLoc = cleanLoc.substring(0, cleanLoc.length() - 1);
+                    }
+                    int lastSlash = cleanLoc.lastIndexOf('/');
+                    if (lastSlash >= 0 && lastSlash + 1 < cleanLoc.length()) {
+                        res.roomId = cleanLoc.substring(lastSlash + 1).trim();
+                    }
+                }
+
+                if (!res.roomId.isEmpty()) {
+                    res.cloudUrl = "https://jsonblob.com/api/jsonBlob/" + res.roomId;
+                    res.success = true;
+                    return res;
+                }
+            }
+
+            res.success = false;
+            res.errorMessage = "Облачный сервис не вернул ID комнаты (HTTP " + code + ").";
+            return res;
+        } catch (Exception e) {
+            res.success = false;
+            res.errorMessage = "Не удалось создать облако в 1 клик: " + e.getMessage();
+            return res;
+        } finally {
+            if (conn != null) {
+                conn.disconnect();
+            }
+        }
+    }
+
     public static CreateGistResult createNewGist(String githubToken, List<ReminderItem> initialReminders) {
         CreateGistResult res = new CreateGistResult();
         if (githubToken == null || githubToken.trim().isEmpty()) {
@@ -80,44 +160,88 @@ public class CloudSyncService {
         }
     }
 
+    /**
+     * Выполняет гибридную двустороннюю синхронизацию:
+     * 1) Если включена локальная синхронизация по Wi-Fi — мгновенно синхронизируется с ПК в домашней сети.
+     * 2) Если настроено Облако (Облако в 1 клик / GitHub Gist / Cloud URL) — также синхронизируется с облаком.
+     */
     public static SyncResult synchronize(CloudSyncConfig config, List<ReminderItem> localSnapshot, boolean forcePush) {
         SyncResult result = new SyncResult();
         result.success = false;
-        result.mergedReminders = localSnapshot != null ? localSnapshot : new ArrayList<ReminderItem>();
+        List<ReminderItem> workingList = localSnapshot != null ? localSnapshot : new ArrayList<ReminderItem>();
+        result.mergedReminders = workingList;
         result.localListUpdated = false;
 
         if (config == null || !config.isConfigured()) {
-            result.message = "Облако не настроено";
+            result.message = "Синхронизация не настроена";
             return result;
         }
 
-        try {
-            String remoteJson = fetchRemoteRemindersJson(config);
-            List<ReminderItem> remoteList = StorageService.deserializeReminders(remoteJson);
+        boolean lanSuccess = false;
+        String lanMsg = "";
 
-            boolean[] flags = new boolean[2]; // [0] = hasChangesFromRemote, [1] = hasChangesForRemote
-            List<ReminderItem> merged = mergeReminders(
-                    localSnapshot != null ? localSnapshot : new ArrayList<ReminderItem>(),
-                    remoteList,
-                    flags
-            );
-
-            if (flags[1] || forcePush || remoteJson == null || remoteJson.trim().isEmpty()) {
-                String mergedJson = StorageService.serializeReminders(merged);
-                pushRemoteRemindersJson(config, mergedJson);
+        // Шаг 1: Локальная синхронизация по Wi-Fi (LAN)
+        if (config.lanWifiSyncEnabled) {
+            LanSyncService.LanSyncResult lanRes = LanSyncService.synchronizeOverLan(config, workingList);
+            if (lanRes.success && lanRes.mergedReminders != null) {
+                boolean[] flags = new boolean[2];
+                workingList = mergeReminders(workingList, lanRes.mergedReminders, flags);
+                if (flags[0]) {
+                    result.localListUpdated = true;
+                }
+                result.mergedReminders = workingList;
+                lanSuccess = true;
+                lanMsg = lanRes.message;
+            } else {
+                lanMsg = lanRes.message;
             }
+        }
 
-            SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
+        // Шаг 2: Облачная синхронизация через интернет (если настроена)
+        if (config.isCloudConfigured()) {
+            try {
+                String remoteJson = fetchRemoteRemindersJson(config);
+                List<ReminderItem> remoteList = StorageService.deserializeReminders(remoteJson);
+
+                boolean[] flags = new boolean[2];
+                List<ReminderItem> merged = mergeReminders(workingList, remoteList, flags);
+
+                if (flags[1] || forcePush || lanSuccess || remoteJson == null || remoteJson.trim().isEmpty()) {
+                    String mergedJson = StorageService.serializeReminders(merged);
+                    pushRemoteRemindersJson(config, mergedJson);
+                }
+
+                SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
+                result.success = true;
+                result.mergedReminders = merged;
+                if (flags[0]) {
+                    result.localListUpdated = true;
+                }
+                result.message = lanSuccess
+                        ? ("Wi-Fi + Облако (" + sdf.format(new Date()) + ")")
+                        : ("Облако синхр. (" + sdf.format(new Date()) + ")");
+                return result;
+            } catch (Exception e) {
+                if (lanSuccess) {
+                    result.success = true;
+                    result.message = lanMsg;
+                    return result;
+                }
+                result.success = false;
+                result.message = "Ошибка облака: " + e.getMessage();
+                return result;
+            }
+        }
+
+        if (lanSuccess) {
             result.success = true;
-            result.mergedReminders = merged;
-            result.localListUpdated = flags[0];
-            result.message = "Синхр.: " + sdf.format(new Date());
-            return result;
-        } catch (Exception e) {
-            result.success = false;
-            result.message = "Ошибка синхр.: " + e.getMessage();
+            result.message = lanMsg;
             return result;
         }
+
+        result.success = false;
+        result.message = !lanMsg.isEmpty() ? lanMsg : "Синхронизация не выполнена";
+        return result;
     }
 
     public static List<ReminderItem> mergeReminders(
@@ -186,7 +310,15 @@ public class CloudSyncService {
     }
 
     private static String fetchRemoteRemindersJson(CloudSyncConfig config) throws Exception {
-        if (config.providerTypeValue == CloudSyncConfig.PROVIDER_GITHUB_GIST) {
+        if (config.providerTypeValue == CloudSyncConfig.PROVIDER_ONE_CLICK_CLOUD) {
+            String url = config.getEffectiveOneClickUrl();
+            if (url.isEmpty()) return "[]";
+            String response = sendHttpRequest(url, "GET", null, null);
+            if (response == null || response.trim().isEmpty() || "null".equalsIgnoreCase(response.trim())) {
+                return "[]";
+            }
+            return response;
+        } else if (config.providerTypeValue == CloudSyncConfig.PROVIDER_GITHUB_GIST) {
             String url = "https://api.github.com/gists/" + config.gistId.trim();
             String response = sendHttpRequest(url, "GET", config.gitHubToken.trim(), null);
             JSONObject root = new JSONObject(response);
@@ -209,7 +341,12 @@ public class CloudSyncService {
     }
 
     private static void pushRemoteRemindersJson(CloudSyncConfig config, String remindersJson) throws Exception {
-        if (config.providerTypeValue == CloudSyncConfig.PROVIDER_GITHUB_GIST) {
+        if (config.providerTypeValue == CloudSyncConfig.PROVIDER_ONE_CLICK_CLOUD) {
+            String url = config.getEffectiveOneClickUrl();
+            if (!url.isEmpty()) {
+                sendHttpRequest(url, "PUT", null, (remindersJson == null || remindersJson.isEmpty()) ? "[]" : remindersJson);
+            }
+        } else if (config.providerTypeValue == CloudSyncConfig.PROVIDER_GITHUB_GIST) {
             String url = "https://api.github.com/gists/" + config.gistId.trim();
             JSONObject fileContent = new JSONObject();
             fileContent.put("content", (remindersJson == null || remindersJson.isEmpty()) ? "[]" : remindersJson);
@@ -234,7 +371,7 @@ public class CloudSyncService {
             conn.setConnectTimeout(15000);
             conn.setReadTimeout(15000);
             conn.setUseCaches(false);
-            conn.setRequestProperty("User-Agent", "StreloReminder-Android/1.0");
+            conn.setRequestProperty("User-Agent", "StreloReminder-Android/1.4");
             conn.setRequestProperty("Accept", "application/vnd.github+json, application/json");
 
             if ("PATCH".equalsIgnoreCase(method)) {

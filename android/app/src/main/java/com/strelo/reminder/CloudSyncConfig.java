@@ -1,5 +1,6 @@
 package com.strelo.reminder;
 
+import android.net.Uri;
 import android.util.Base64;
 
 import org.json.JSONObject;
@@ -10,16 +11,26 @@ public class CloudSyncConfig {
     public static final int PROVIDER_DISABLED = 0;
     public static final int PROVIDER_GITHUB_GIST = 1;
     public static final int PROVIDER_CUSTOM_URL = 2;
+    public static final int PROVIDER_ONE_CLICK_CLOUD = 3;
 
     private static final String CODE_PREFIX = "STRELO1:";
+    private static final String DEEP_LINK_PREFIX = "strelo://sync?code=";
 
     public int providerTypeValue = PROVIDER_DISABLED;
     public String gitHubToken = "";
     public String gistId = "";
     public String customCloudUrl = "";
-    public int autoSyncIntervalSeconds = 20;
+    public int autoSyncIntervalSeconds = 15;
+    public String oneClickRoomId = "";
+    public boolean lanWifiSyncEnabled = true;
+    public String lanPcIp = "";
+    public int lanPort = 45892;
 
-    public boolean isConfigured() {
+    public boolean isCloudConfigured() {
+        if (providerTypeValue == PROVIDER_ONE_CLICK_CLOUD) {
+            return (oneClickRoomId != null && !oneClickRoomId.trim().isEmpty())
+                    || (customCloudUrl != null && !customCloudUrl.trim().isEmpty());
+        }
         if (providerTypeValue == PROVIDER_GITHUB_GIST) {
             return gitHubToken != null && !gitHubToken.trim().isEmpty()
                     && gistId != null && !gistId.trim().isEmpty();
@@ -32,6 +43,27 @@ public class CloudSyncConfig {
         return false;
     }
 
+    public boolean isConfigured() {
+        return isCloudConfigured() || lanWifiSyncEnabled;
+    }
+
+    public String getEffectiveOneClickUrl() {
+        if (customCloudUrl != null) {
+            String u = customCloudUrl.trim();
+            if (u.toLowerCase().startsWith("http://") || u.toLowerCase().startsWith("https://")) {
+                return u;
+            }
+        }
+        if (oneClickRoomId != null && !oneClickRoomId.trim().isEmpty()) {
+            String id = oneClickRoomId.trim();
+            if (id.toLowerCase().startsWith("http://") || id.toLowerCase().startsWith("https://")) {
+                return id;
+            }
+            return "https://jsonblob.com/api/jsonBlob/" + id;
+        }
+        return "";
+    }
+
     public JSONObject toJson() {
         JSONObject obj = new JSONObject();
         try {
@@ -40,6 +72,10 @@ public class CloudSyncConfig {
             obj.put("GistId", gistId != null ? gistId : "");
             obj.put("CustomCloudUrl", customCloudUrl != null ? customCloudUrl : "");
             obj.put("AutoSyncIntervalSeconds", autoSyncIntervalSeconds);
+            obj.put("OneClickRoomId", oneClickRoomId != null ? oneClickRoomId : "");
+            obj.put("LanWifiSyncEnabled", lanWifiSyncEnabled);
+            obj.put("LanPcIp", lanPcIp != null ? lanPcIp : "");
+            obj.put("LanPort", lanPort > 0 ? lanPort : 45892);
         } catch (Exception ignored) {
         }
         return obj;
@@ -52,33 +88,62 @@ public class CloudSyncConfig {
         cfg.gitHubToken = obj.optString("GitHubToken", "");
         cfg.gistId = obj.optString("GistId", "");
         cfg.customCloudUrl = obj.optString("CustomCloudUrl", "");
-        cfg.autoSyncIntervalSeconds = Math.max(10, obj.optInt("AutoSyncIntervalSeconds", 20));
+        cfg.autoSyncIntervalSeconds = Math.max(10, obj.optInt("AutoSyncIntervalSeconds", 15));
+        cfg.oneClickRoomId = obj.optString("OneClickRoomId", "");
+        cfg.lanWifiSyncEnabled = obj.optBoolean("LanWifiSyncEnabled", true);
+        cfg.lanPcIp = obj.optString("LanPcIp", "");
+        cfg.lanPort = obj.optInt("LanPort", 45892);
+        if (cfg.lanPort <= 0) cfg.lanPort = 45892;
         return cfg;
     }
 
     public String toConnectionCode() {
         try {
-            String json = toJson().toString();
-            String b64 = Base64.encodeToString(json.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
+            byte[] jsonBytes = toJson().toString().getBytes(StandardCharsets.UTF_8);
+            String b64 = Base64.encodeToString(jsonBytes, Base64.NO_WRAP);
             return CODE_PREFIX + b64;
         } catch (Exception e) {
             return "";
         }
     }
 
+    public String toQrDeepLink() {
+        String code = toConnectionCode();
+        if (code.isEmpty()) return "";
+        return DEEP_LINK_PREFIX + Uri.encode(code);
+    }
+
     public static CloudSyncConfig fromConnectionCode(String code) {
         if (code == null || code.trim().isEmpty()) return null;
         String trimmed = code.trim();
+
+        int paramIdx = trimmed.toLowerCase().indexOf("code=");
+        if (paramIdx >= 0) {
+            trimmed = Uri.decode(trimmed.substring(paramIdx + 5).trim());
+        }
+
         if (trimmed.regionMatches(true, 0, CODE_PREFIX, 0, CODE_PREFIX.length())) {
             trimmed = trimmed.substring(CODE_PREFIX.length()).trim();
         }
+
         try {
             byte[] decoded = Base64.decode(trimmed, Base64.DEFAULT);
             String json = new String(decoded, StandardCharsets.UTF_8);
             JSONObject obj = new JSONObject(json);
             return fromJson(obj);
-        } catch (Exception e) {
-            return null;
+        } catch (Exception ignored) {
         }
+
+        // Если пользователь ввёл короткий ID комнаты 1-клик облака
+        if (trimmed.length() >= 8 && trimmed.length() <= 64 && !trimmed.contains(" ") && trimmed.contains("-")) {
+            CloudSyncConfig cfg = new CloudSyncConfig();
+            cfg.providerTypeValue = PROVIDER_ONE_CLICK_CLOUD;
+            cfg.oneClickRoomId = trimmed;
+            cfg.customCloudUrl = "https://jsonblob.com/api/jsonBlob/" + trimmed;
+            cfg.lanWifiSyncEnabled = true;
+            return cfg;
+        }
+
+        return null;
     }
 }

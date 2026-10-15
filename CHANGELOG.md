@@ -4,6 +4,23 @@
 
 ---
 
+## [2026-10-15] — Исправление падения Android-приложения при запуске (v1.3.10)
+
+### Причина и исправление
+- **Причина падения в `v1.3.9`**: в `android/app/src/main/AndroidManifest.xml` был объявлен тег `<provider android:name=".ApkFileProvider" ... />`, однако соответствующий Java-класс `com.strelo.reminder.ApkFileProvider` отсутствовал в исходниках. Поскольку Android (`ActivityThread.handleBindApplication`) инициализирует все объявленные `ContentProvider` при старте процесса до вызова `MainActivity.onCreate()`, приложение падало при запуске с `ClassNotFoundException: Didn't find class "com.strelo.reminder.ApkFileProvider"`.
+- **Что исправлено**:
+  1. Из `android/app/src/main/AndroidManifest.xml` удалён неиспользуемый `<provider android:name=".ApkFileProvider" />` и возвращена системная тема `Theme.DeviceDefault.Light.NoActionBar` (`launchMode="singleTask"`).
+  2. В `AlarmScheduler.java`, `OverlayAlertManager.java` и `MainActivity.java` добавлена полная защита вызовов системных сервисов (`NotificationChannel`, `AlarmManager`, `PowerManager.WakeLock`, `Settings.canDrawOverlays`) блоками `try / catch (Throwable)` для 100% стабильного запуска на любых прошивках Android (Samsung OneUI, Xiaomi HyperOS/MIUI, Huawei EMUI, Pixel).
+
+### Затронутые файлы
+- `android/app/src/main/AndroidManifest.xml` (обновлён)
+- `android/app/src/main/java/com/strelo/reminder/AlarmScheduler.java` (обновлён)
+- `android/app/src/main/java/com/strelo/reminder/OverlayAlertManager.java` (обновлён)
+- `android/app/src/main/java/com/strelo/reminder/MainActivity.java` (обновлён)
+- `CHANGELOG.md`, `AGENTS.md` (обновлены)
+
+---
+
 ## [2026-10-15] — Исправление размера окна синхронизации, выбор времени синхронизации, постоянный ключ подписи Android APK и всплывающее окно поверх всех приложений на Android
 
 ### Что сделано

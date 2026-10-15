@@ -117,22 +117,25 @@ public class MainActivity extends Activity {
     }
 
     private void handleIncomingDeepLink(Intent intent) {
-        if (intent == null || intent.getData() == null) return;
-        Uri uri = intent.getData();
-        if ("strelo".equalsIgnoreCase(uri.getScheme())) {
-            String raw = uri.toString();
-            CloudSyncConfig parsed = CloudSyncConfig.fromConnectionCode(raw);
-            if (parsed != null) {
-                cloudConfig = parsed;
-                StorageService.saveCloudConfig(this, cloudConfig);
-                updateCloudStatusHeader();
-                Toast.makeText(
-                        this,
-                        "✓ Настройки синхронизации с ПК успешно применены по QR-коду!",
-                        Toast.LENGTH_LONG
-                ).show();
-                triggerBackgroundSync(true);
+        try {
+            if (intent == null || intent.getData() == null) return;
+            Uri uri = intent.getData();
+            if ("strelo".equalsIgnoreCase(uri.getScheme())) {
+                String raw = uri.toString();
+                CloudSyncConfig parsed = CloudSyncConfig.fromConnectionCode(raw);
+                if (parsed != null) {
+                    cloudConfig = parsed;
+                    StorageService.saveCloudConfig(this, cloudConfig);
+                    updateCloudStatusHeader();
+                    Toast.makeText(
+                            this,
+                            "✓ Настройки синхронизации с ПК успешно применены по QR-коду!",
+                            Toast.LENGTH_LONG
+                    ).show();
+                    triggerBackgroundSync(true);
+                }
             }
+        } catch (Throwable ignored) {
         }
     }
 
@@ -187,25 +190,31 @@ public class MainActivity extends Activity {
     }
 
     private void requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT >= 33) {
-            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 101);
+        try {
+            if (Build.VERSION.SDK_INT >= 33) {
+                if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 101);
+                }
             }
+        } catch (Throwable ignored) {
         }
     }
 
     private void createUpdateNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-            if (nm != null) {
-                NotificationChannel ch = new NotificationChannel(
-                        UPDATE_CHANNEL_ID,
-                        "Обновления приложения Strelo",
-                        NotificationManager.IMPORTANCE_DEFAULT
-                );
-                ch.setDescription("Уведомления о выходе новой версии Strelo на GitHub");
-                nm.createNotificationChannel(ch);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                if (nm != null) {
+                    NotificationChannel ch = new NotificationChannel(
+                            UPDATE_CHANNEL_ID,
+                            "Обновления приложения Strelo",
+                            NotificationManager.IMPORTANCE_DEFAULT
+                    );
+                    ch.setDescription("Уведомления о выходе новой версии Strelo на GitHub");
+                    nm.createNotificationChannel(ch);
+                }
             }
+        } catch (Throwable ignored) {
         }
     }
 

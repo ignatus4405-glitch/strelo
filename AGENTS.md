@@ -102,6 +102,9 @@ StreloReminder/
    - На **Android** (`MainActivity.java`, `ReminderAlertActivity.java`): для всех кнопок (`Button`) задавайте высоту `ViewGroup.LayoutParams.WRAP_CONTENT` в сочетании с `setMinHeight(dp(...))`, `setSingleLine(true)` и `setIncludeFontPadding(false)`, чтобы текст никогда не обрезался по вертикали.
 3. **Совместимость JSON-протокола Windows ↔ Android**:
    - Любое новое поле в `ReminderItem` или `CloudSyncConfig` должно одновременно добавляться и в C#-классы (`Models/`), и в Java-классы (`android/app/src/main/java/com/strelo/reminder/`).
+4. **Чистота `AndroidManifest.xml` и постоянная подпись APK**:
+   - Никогда не объявляйте в `AndroidManifest.xml` теги `<provider>`, `<service>` или `<receiver>`, для которых не создан реальный Java-класс в `com.strelo.reminder` (Android инстанцирует все `<provider>` при старте процесса до `MainActivity.onCreate()`, что вызывает мгновенный краш `ClassNotFoundException`).
+   - Все сборки Android APK подписываются постоянным ключом `android/app/strelo-release.p12` (`signingConfigs.release`), чтобы обновления всегда устанавливались поверх предыдущей версии без потери данных.
 
 ---
 

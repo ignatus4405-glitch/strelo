@@ -39,8 +39,13 @@ public class OverlayAlertManager {
     private static final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     public static boolean canDrawOverlays(Context context) {
+        if (context == null) return false;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            return Settings.canDrawOverlays(context);
+            try {
+                return Settings.canDrawOverlays(context);
+            } catch (Throwable ignored) {
+                return false;
+            }
         }
         return true;
     }

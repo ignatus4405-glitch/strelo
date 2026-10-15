@@ -1446,7 +1446,11 @@ public class MainActivity extends Activity {
         // Поля для «Облако в 1 клик»
         final EditText etOneClickRoom = new EditText(this);
         etOneClickRoom.setHint("ID комнаты Облака в 1 клик (создаётся автоматически)");
-        etOneClickRoom.setText(cloudConfig.oneClickRoomId);
+        String initRoom = cloudConfig.oneClickRoomId != null ? cloudConfig.oneClickRoomId.trim() : "";
+        if (initRoom.isEmpty() && initialProvider == CloudSyncConfig.PROVIDER_ONE_CLICK_CLOUD) {
+            initRoom = CloudSyncService.generateNewRoomId();
+        }
+        etOneClickRoom.setText(initRoom);
         layout.addView(etOneClickRoom);
 
         final Button btnCreateOneClick = createButton("☁ Создать Облако в 1 клик (без токенов)", "#2563EB", "#FFFFFF");
@@ -1709,7 +1713,6 @@ public class MainActivity extends Activity {
                                 if (res.success) {
                                     spProvider.setSelection(CloudSyncConfig.PROVIDER_ONE_CLICK_CLOUD);
                                     etOneClickRoom.setText(res.roomId);
-                                    etCustomUrl.setText(res.cloudUrl);
                                     updateQrPreview.run();
                                     Toast.makeText(
                                             MainActivity.this,

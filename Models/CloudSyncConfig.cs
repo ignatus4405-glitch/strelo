@@ -71,7 +71,7 @@ namespace StreloReminder.Models
         {
             if (ProviderType == CloudProviderType.OneClickCloud)
             {
-                return !string.IsNullOrWhiteSpace(OneClickRoomId) || !string.IsNullOrWhiteSpace(CustomCloudUrl);
+                return !string.IsNullOrWhiteSpace(OneClickRoomId);
             }
             if (ProviderType == CloudProviderType.GitHubGist)
             {
@@ -98,13 +98,6 @@ namespace StreloReminder.Models
 
         public string GetEffectiveOneClickUrl()
         {
-            if (!string.IsNullOrWhiteSpace(CustomCloudUrl) &&
-                (CustomCloudUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-                 CustomCloudUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
-            {
-                return CustomCloudUrl.Trim();
-            }
-
             if (!string.IsNullOrWhiteSpace(OneClickRoomId))
             {
                 string id = OneClickRoomId.Trim();
@@ -113,10 +106,37 @@ namespace StreloReminder.Models
                 {
                     return id;
                 }
-                return "https://jsonblob.com/api/jsonBlob/" + id;
+                return "https://ntfy.sh/strelo_room_" + SanitizeRoomId(id);
             }
 
             return string.Empty;
+        }
+
+        public static string SanitizeRoomId(string rawRoomId)
+        {
+            if (string.IsNullOrWhiteSpace(rawRoomId))
+                return string.Empty;
+
+            string trimmed = rawRoomId.Trim();
+            int lastSlash = trimmed.TrimEnd('/').LastIndexOf('/');
+            if (lastSlash >= 0 && lastSlash + 1 < trimmed.Length)
+            {
+                trimmed = trimmed.Substring(lastSlash + 1);
+            }
+
+            StringBuilder sb = new StringBuilder(trimmed.Length);
+            for (int i = 0; i < trimmed.Length; i++)
+            {
+                char c = trimmed[i];
+                if ((c >= 'a' && c <= 'z') ||
+                    (c >= 'A' && c <= 'Z') ||
+                    (c >= '0' && c <= '9') ||
+                    c == '-' || c == '_')
+                {
+                    sb.Append(char.ToLowerInvariant(c));
+                }
+            }
+            return sb.ToString();
         }
 
         public string ToConnectionCode()
@@ -199,11 +219,7 @@ namespace StreloReminder.Models
                         }
                         else if (k == "r")
                         {
-                            cfg.OneClickRoomId = v;
-                            if (!string.IsNullOrEmpty(v) && !v.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-                            {
-                                cfg.CustomCloudUrl = "https://jsonblob.com/api/jsonBlob/" + v;
-                            }
+                            cfg.OneClickRoomId = SanitizeRoomId(v);
                         }
                         else if (k == "w")
                         {
@@ -254,6 +270,10 @@ namespace StreloReminder.Models
                     {
                         if (parsed.LanPort <= 0) parsed.LanPort = 45892;
                         if (parsed.AutoSyncIntervalSeconds < 3) parsed.AutoSyncIntervalSeconds = 15;
+                        if (!string.IsNullOrEmpty(parsed.OneClickRoomId))
+                        {
+                            parsed.OneClickRoomId = SanitizeRoomId(parsed.OneClickRoomId);
+                        }
                         return parsed;
                     }
                 }
@@ -262,14 +282,13 @@ namespace StreloReminder.Models
             {
             }
 
-            // Если пользователь вставил короткий ID комнаты Облака в 1 клик (например UUID jsonblob)
-            if (trimmed.Length >= 8 && trimmed.Length <= 64 && !trimmed.Contains(" ") && trimmed.Contains("-"))
+            // Если пользователь вставил короткий ID комнаты Облака в 1 клик (например strelo-a8k3m9p2x7)
+            if (trimmed.Length >= 6 && trimmed.Length <= 64 && !trimmed.Contains(" "))
             {
                 return new CloudSyncConfig
                 {
                     ProviderType = CloudProviderType.OneClickCloud,
-                    OneClickRoomId = trimmed,
-                    CustomCloudUrl = "https://jsonblob.com/api/jsonBlob/" + trimmed,
+                    OneClickRoomId = SanitizeRoomId(trimmed),
                     LanWifiSyncEnabled = true,
                     AutoSyncIntervalSeconds = 15
                 };

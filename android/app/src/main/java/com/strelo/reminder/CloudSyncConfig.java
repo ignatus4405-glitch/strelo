@@ -28,8 +28,7 @@ public class CloudSyncConfig {
 
     public boolean isCloudConfigured() {
         if (providerTypeValue == PROVIDER_ONE_CLICK_CLOUD) {
-            return (oneClickRoomId != null && !oneClickRoomId.trim().isEmpty())
-                    || (customCloudUrl != null && !customCloudUrl.trim().isEmpty());
+            return oneClickRoomId != null && !sanitizeRoomId(oneClickRoomId).isEmpty();
         }
         if (providerTypeValue == PROVIDER_GITHUB_GIST) {
             return gitHubToken != null && !gitHubToken.trim().isEmpty()
@@ -48,20 +47,36 @@ public class CloudSyncConfig {
     }
 
     public String getEffectiveOneClickUrl() {
-        if (customCloudUrl != null) {
-            String u = customCloudUrl.trim();
-            if (u.toLowerCase().startsWith("http://") || u.toLowerCase().startsWith("https://")) {
-                return u;
-            }
-        }
-        if (oneClickRoomId != null && !oneClickRoomId.trim().isEmpty()) {
-            String id = oneClickRoomId.trim();
-            if (id.toLowerCase().startsWith("http://") || id.toLowerCase().startsWith("https://")) {
-                return id;
-            }
-            return "https://jsonblob.com/api/jsonBlob/" + id;
+        String clean = sanitizeRoomId(oneClickRoomId);
+        if (!clean.isEmpty()) {
+            return "https://ntfy.sh/strelo_room_" + clean;
         }
         return "";
+    }
+
+    public static String sanitizeRoomId(String rawRoomId) {
+        if (rawRoomId == null || rawRoomId.trim().isEmpty()) {
+            return "";
+        }
+        String trimmed = rawRoomId.trim();
+        while (trimmed.endsWith("/")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        int lastSlash = trimmed.lastIndexOf('/');
+        if (lastSlash >= 0 && lastSlash + 1 < trimmed.length()) {
+            trimmed = trimmed.substring(lastSlash + 1);
+        }
+        StringBuilder sb = new StringBuilder(trimmed.length());
+        for (int i = 0; i < trimmed.length(); i++) {
+            char c = trimmed.charAt(i);
+            if ((c >= 'a' && c <= 'z')
+                    || (c >= 'A' && c <= 'Z')
+                    || (c >= '0' && c <= '9')
+                    || c == '-' || c == '_') {
+                sb.append(Character.toLowerCase(c));
+            }
+        }
+        return sb.toString();
     }
 
     public JSONObject toJson() {
@@ -72,7 +87,7 @@ public class CloudSyncConfig {
             obj.put("GistId", gistId != null ? gistId : "");
             obj.put("CustomCloudUrl", customCloudUrl != null ? customCloudUrl : "");
             obj.put("AutoSyncIntervalSeconds", Math.max(3, autoSyncIntervalSeconds));
-            obj.put("OneClickRoomId", oneClickRoomId != null ? oneClickRoomId : "");
+            obj.put("OneClickRoomId", oneClickRoomId != null ? sanitizeRoomId(oneClickRoomId) : "");
             obj.put("LanWifiSyncEnabled", lanWifiSyncEnabled);
             obj.put("LanPcIp", lanPcIp != null ? lanPcIp : "");
             obj.put("LanPort", lanPort > 0 ? lanPort : 45892);
@@ -89,7 +104,7 @@ public class CloudSyncConfig {
         cfg.gistId = obj.optString("GistId", "");
         cfg.customCloudUrl = obj.optString("CustomCloudUrl", "");
         cfg.autoSyncIntervalSeconds = Math.max(3, obj.optInt("AutoSyncIntervalSeconds", 15));
-        cfg.oneClickRoomId = obj.optString("OneClickRoomId", "");
+        cfg.oneClickRoomId = sanitizeRoomId(obj.optString("OneClickRoomId", ""));
         cfg.lanWifiSyncEnabled = obj.optBoolean("LanWifiSyncEnabled", true);
         cfg.lanPcIp = obj.optString("LanPcIp", "");
         cfg.lanPort = obj.optInt("LanPort", 45892);
@@ -112,7 +127,7 @@ public class CloudSyncConfig {
             StringBuilder sb = new StringBuilder("strelo://sync?v=1");
             sb.append("&p=").append(providerTypeValue);
             if (oneClickRoomId != null && !oneClickRoomId.trim().isEmpty()) {
-                sb.append("&r=").append(Uri.encode(oneClickRoomId.trim()));
+                sb.append("&r=").append(Uri.encode(sanitizeRoomId(oneClickRoomId)));
             }
             sb.append("&w=").append(lanWifiSyncEnabled ? "1" : "0");
             if (lanPcIp != null && !lanPcIp.trim().isEmpty()) {
@@ -143,10 +158,7 @@ public class CloudSyncConfig {
                 if (p != null) cfg.providerTypeValue = Integer.parseInt(p.trim());
                 String r = uri.getQueryParameter("r");
                 if (r != null) {
-                    cfg.oneClickRoomId = r.trim();
-                    if (!cfg.oneClickRoomId.isEmpty() && !cfg.oneClickRoomId.toLowerCase().startsWith("http")) {
-                        cfg.customCloudUrl = "https://jsonblob.com/api/jsonBlob/" + cfg.oneClickRoomId;
-                    }
+                    cfg.oneClickRoomId = sanitizeRoomId(r);
                 }
                 String w = uri.getQueryParameter("w");
                 if (w != null) cfg.lanWifiSyncEnabled = "1".equals(w) || "true".equalsIgnoreCase(w);
@@ -179,11 +191,10 @@ public class CloudSyncConfig {
         }
 
         // Если пользователь ввёл короткий ID комнаты 1-клик облака
-        if (trimmed.length() >= 8 && trimmed.length() <= 64 && !trimmed.contains(" ") && trimmed.contains("-")) {
+        if (trimmed.length() >= 6 && trimmed.length() <= 64 && !trimmed.contains(" ")) {
             CloudSyncConfig cfg = new CloudSyncConfig();
             cfg.providerTypeValue = PROVIDER_ONE_CLICK_CLOUD;
-            cfg.oneClickRoomId = trimmed;
-            cfg.customCloudUrl = "https://jsonblob.com/api/jsonBlob/" + trimmed;
+            cfg.oneClickRoomId = sanitizeRoomId(trimmed);
             cfg.lanWifiSyncEnabled = true;
             return cfg;
         }

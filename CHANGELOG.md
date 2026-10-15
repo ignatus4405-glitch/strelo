@@ -4,6 +4,28 @@
 
 ---
 
+## [2026-10-15] — Исправление ошибки «(403) Запрещено» при создании «Облака в 1 клик» и переход на мульти-релейный протокол (v1.3.11)
+
+### Причина и исправление
+- **Причина ошибки `403 Запрещено` в `v1.3.10`**: ранее метод `CreateOneClickCloudRoom` обращался к единственному серверу `https://jsonblob.com/api/jsonBlob`, который закрыт защитой Cloudflare Bot Fight Mode и блокирует не-браузерные HTTP-клиенты (`.NET HttpWebRequest` / `HttpURLConnection`) и российские IP-адреса кодом `HTTP 403 Forbidden`.
+- **Что исправлено**:
+  1. **Мгновенная локальная генерация ID комнаты (`GenerateNewRoomId`)**: при нажатии кнопки **«☁ Создать новое Облако в 1 клик (автоматически)»** (а также автоматически при открытии окна настроек) уникальный криптостойкий идентификатор комнаты вида `strelo-a8k3m9p2x7` генерируется локально на устройстве за 0 мс — без зависимости от ответа внешнего сервера при создании комнаты.
+  2. **Мульти-релейный облачный пул без блокировок Cloudflare (`Services/CloudSyncService.cs`, `CloudSyncService.java`)**:
+     - Вместо `jsonblob.com` для «Облака в 1 клик» подключён каскад независимых открытых pub/sub-серверов (`https://ntfy.sh`, `https://ntfy.envs.net`, `https://ntfy.tedomum.net`), специально предназначенных для настольных и мобильных клиентов без регистрации и токенов.
+     - Данные передаются в защищённом однострочном контейнере `STRELO_SYNC_V1:<Base64>|END_STRELO` (а при большом списке напоминаний автоматически сжимаются через `GZipStream` / `GZIPOutputStream` в `STRELO_SYNC_GZ:<Base64>|END_STRELO`).
+     - Добавлена дедупликация отправки (`LastPushedByRoom`), благодаря чему фоновая проверка по таймеру выполняет только быстрый `GET`-запрос и отправляет `POST` исключительно при реальном изменении напоминаний.
+
+### Затронутые файлы
+- `Models/CloudSyncConfig.cs` (обновлён)
+- `Services/CloudSyncService.cs` (обновлён)
+- `Forms/CloudSyncForm.cs` (обновлён)
+- `android/app/src/main/java/com/strelo/reminder/CloudSyncConfig.java` (обновлён)
+- `android/app/src/main/java/com/strelo/reminder/CloudSyncService.java` (обновлён)
+- `android/app/src/main/java/com/strelo/reminder/MainActivity.java` (обновлён)
+- `CHANGELOG.md`, `AGENTS.md` (обновлены)
+
+---
+
 ## [2026-10-15] — Исправление падения Android-приложения при запуске (v1.3.10)
 
 ### Причина и исправление

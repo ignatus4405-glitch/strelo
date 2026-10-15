@@ -645,7 +645,12 @@ namespace StreloReminder.Forms
             }
 
             _cmbProvider.SelectedIndex = providerIdx;
-            _txtOneClickRoomId.Text = _config.OneClickRoomId ?? string.Empty;
+            string roomId = _config.OneClickRoomId ?? string.Empty;
+            if (providerIdx == (int)CloudProviderType.OneClickCloud && string.IsNullOrWhiteSpace(roomId))
+            {
+                roomId = CloudSyncService.GenerateNewRoomId();
+            }
+            _txtOneClickRoomId.Text = roomId;
             _txtGitHubToken.Text = _config.GitHubToken ?? string.Empty;
             _txtGistId.Text = _config.GistId ?? string.Empty;
             _txtCustomUrl.Text = _config.CustomCloudUrl ?? string.Empty;
@@ -659,7 +664,11 @@ namespace StreloReminder.Forms
         private void ApplyControlsToConfig(CloudSyncConfig target)
         {
             target.ProviderType = (CloudProviderType)_cmbProvider.SelectedIndex;
-            target.OneClickRoomId = _txtOneClickRoomId.Text.Trim();
+            if (target.ProviderType == CloudProviderType.OneClickCloud && string.IsNullOrWhiteSpace(_txtOneClickRoomId.Text))
+            {
+                _txtOneClickRoomId.Text = CloudSyncService.GenerateNewRoomId();
+            }
+            target.OneClickRoomId = CloudSyncConfig.SanitizeRoomId(_txtOneClickRoomId.Text);
             target.GitHubToken = _txtGitHubToken.Text.Trim();
             target.GistId = _txtGistId.Text.Trim();
             target.CustomCloudUrl = _txtCustomUrl.Text.Trim();
@@ -726,7 +735,6 @@ namespace StreloReminder.Forms
             {
                 _cmbProvider.SelectedIndex = (int)CloudProviderType.OneClickCloud;
                 _txtOneClickRoomId.Text = roomId;
-                _txtCustomUrl.Text = cloudUrl;
                 ApplyControlsToConfig(_config);
                 StorageService.SaveCloudConfig(_config);
                 UpdateConnectionCodeAndQrPreview();

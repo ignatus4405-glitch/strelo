@@ -1,8 +1,12 @@
 package com.strelo.reminder;
 
+import android.util.Base64;
+
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -12,14 +16,31 @@ import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
 
 public class CloudSyncService {
+
+    private static final String BROWSER_USER_AGENT = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36";
+    private static final String SYNC_MARKER_RAW = "STRELO_SYNC_V1:";
+    private static final String SYNC_MARKER_GZIP = "STRELO_SYNC_GZ:";
+    private static final String SYNC_MARKER_END = "|END_STRELO";
+
+    private static final String[] ONE_CLICK_RELAY_BASES = new String[]{
+            "https://ntfy.sh",
+            "https://ntfy.envs.net",
+            "https://ntfy.tedomum.net"
+    };
+
+    private static final Map<String, String> LAST_PUSHED_BY_ROOM = new HashMap<>();
 
     public static class SyncResult {
         public boolean success;
@@ -41,77 +62,32 @@ public class CloudSyncService {
         public String errorMessage = "";
     }
 
+    public static String generateNewRoomId() {
+        return "strelo-" + UUID.randomUUID().toString().replace("-", "").substring(0, 10).toLowerCase(Locale.US);
+    }
+
     /**
      * Создаёт новое «Облако в 1 клик» без регистрации и токенов.
+     * Генерирует уникальный ID комнаты локально (без риска ошибки 403) и отправляет начальное состояние в пул релеев.
      */
     public static CreateOneClickResult createOneClickCloudRoom(List<ReminderItem> initialReminders) {
         CreateOneClickResult res = new CreateOneClickResult();
+        res.roomId = generateNewRoomId();
+        res.cloudUrl = "https://ntfy.sh/strelo_room_" + res.roomId;
+        res.success = true;
+
         String remindersJson = StorageService.serializeReminders(initialReminders);
         if (remindersJson == null || remindersJson.trim().isEmpty()) {
             remindersJson = "[]";
         }
 
-        HttpURLConnection conn = null;
         try {
-            URL url = new URL("https://jsonblob.com/api/jsonBlob");
-            conn = (HttpURLConnection) url.openConnection();
-            conn.setRequestMethod("POST");
-            conn.setConnectTimeout(15000);
-            conn.setReadTimeout(15000);
-            conn.setRequestProperty("User-Agent", "StreloReminder-Android/1.4");
-            conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-            conn.setRequestProperty("Accept", "application/json");
-            conn.setDoOutput(true);
-
-            byte[] bytes = remindersJson.getBytes(StandardCharsets.UTF_8);
-            try (OutputStream os = conn.getOutputStream()) {
-                os.write(bytes);
-                os.flush();
-            }
-
-            int code = conn.getResponseCode();
-            if (code >= 200 && code < 300) {
-                String location = conn.getHeaderField("Location");
-                if (location == null || location.isEmpty()) {
-                    location = conn.getHeaderField("location");
-                }
-                String blobHeader = conn.getHeaderField("X-jsonblob");
-                if (blobHeader == null || blobHeader.isEmpty()) {
-                    blobHeader = conn.getHeaderField("x-jsonblob");
-                }
-
-                if (blobHeader != null && !blobHeader.trim().isEmpty()) {
-                    res.roomId = blobHeader.trim();
-                } else if (location != null && !location.trim().isEmpty()) {
-                    String cleanLoc = location.trim();
-                    while (cleanLoc.endsWith("/")) {
-                        cleanLoc = cleanLoc.substring(0, cleanLoc.length() - 1);
-                    }
-                    int lastSlash = cleanLoc.lastIndexOf('/');
-                    if (lastSlash >= 0 && lastSlash + 1 < cleanLoc.length()) {
-                        res.roomId = cleanLoc.substring(lastSlash + 1).trim();
-                    }
-                }
-
-                if (!res.roomId.isEmpty()) {
-                    res.cloudUrl = "https://jsonblob.com/api/jsonBlob/" + res.roomId;
-                    res.success = true;
-                    return res;
-                }
-            }
-
-            res.success = false;
-            res.errorMessage = "Облачный сервис не вернул ID комнаты (HTTP " + code + ").";
-            return res;
-        } catch (Exception e) {
-            res.success = false;
-            res.errorMessage = "Не удалось создать облако в 1 клик: " + e.getMessage();
-            return res;
-        } finally {
-            if (conn != null) {
-                conn.disconnect();
-            }
+            pushOneClickCloudRoom(res.roomId, remindersJson);
+        } catch (Exception ignored) {
+            // Даже если внешний интернет временно недоступен, комната и QR-код успешно созданы
         }
+
+        return res;
     }
 
     public static CreateGistResult createNewGist(String githubToken, List<ReminderItem> initialReminders) {
@@ -139,7 +115,9 @@ public class CloudSyncService {
                     "https://api.github.com/gists",
                     "POST",
                     githubToken.trim(),
-                    payload.toString()
+                    payload.toString(),
+                    "application/json; charset=utf-8",
+                    15000
             );
 
             JSONObject respObj = new JSONObject(response);
@@ -200,14 +178,26 @@ public class CloudSyncService {
         // Шаг 2: Облачная синхронизация через интернет (если настроена)
         if (config.isCloudConfigured()) {
             try {
-                String remoteJson = fetchRemoteRemindersJson(config);
+                boolean[] hadExisting = new boolean[]{false};
+                String remoteJson = fetchRemoteRemindersJson(config, hadExisting);
                 List<ReminderItem> remoteList = StorageService.deserializeReminders(remoteJson);
 
                 boolean[] flags = new boolean[2];
                 List<ReminderItem> merged = mergeReminders(workingList, remoteList, flags);
 
-                if (flags[1] || forcePush || lanSuccess || remoteJson == null || remoteJson.trim().isEmpty()) {
-                    String mergedJson = StorageService.serializeReminders(merged);
+                String mergedJson = StorageService.serializeReminders(merged);
+                boolean shouldPush = flags[1];
+                if (!shouldPush && (forcePush || lanSuccess)) {
+                    String normMerged = mergedJson != null ? mergedJson.trim() : "[]";
+                    String normRemote = remoteJson != null ? remoteJson.trim() : "[]";
+                    if (!hadExisting[0] && !merged.isEmpty()) {
+                        shouldPush = true;
+                    } else if (!normMerged.equals(normRemote)) {
+                        shouldPush = true;
+                    }
+                }
+
+                if (shouldPush) {
                     pushRemoteRemindersJson(config, mergedJson);
                 }
 
@@ -309,47 +299,50 @@ public class CloudSyncService {
         return merged;
     }
 
-    private static String fetchRemoteRemindersJson(CloudSyncConfig config) throws Exception {
+    private static String fetchRemoteRemindersJson(CloudSyncConfig config, boolean[] outHadExisting) throws Exception {
+        if (outHadExisting != null && outHadExisting.length > 0) {
+            outHadExisting[0] = false;
+        }
         if (config.providerTypeValue == CloudSyncConfig.PROVIDER_ONE_CLICK_CLOUD) {
-            String url = config.getEffectiveOneClickUrl();
-            if (url.isEmpty()) return "[]";
-            String response = sendHttpRequest(url, "GET", null, null);
-            if (response == null || response.trim().isEmpty() || "null".equalsIgnoreCase(response.trim())) {
-                return "[]";
-            }
-            return response;
+            String roomId = CloudSyncConfig.sanitizeRoomId(config.oneClickRoomId);
+            if (roomId.isEmpty()) return "[]";
+            return fetchOneClickCloudRoom(roomId, outHadExisting);
         } else if (config.providerTypeValue == CloudSyncConfig.PROVIDER_GITHUB_GIST) {
             String url = "https://api.github.com/gists/" + config.gistId.trim();
-            String response = sendHttpRequest(url, "GET", config.gitHubToken.trim(), null);
+            String response = sendHttpRequest(url, "GET", config.gitHubToken.trim(), null, null, 15000);
             JSONObject root = new JSONObject(response);
             JSONObject files = root.optJSONObject("files");
             if (files != null) {
                 JSONObject fileObj = files.optJSONObject("strelo_reminders.json");
                 if (fileObj != null) {
+                    if (outHadExisting != null && outHadExisting.length > 0) outHadExisting[0] = true;
                     return fileObj.optString("content", "[]");
                 }
             }
             return "[]";
         } else if (config.providerTypeValue == CloudSyncConfig.PROVIDER_CUSTOM_URL) {
-            String response = sendHttpRequest(config.customCloudUrl.trim(), "GET", null, null);
+            String response = sendHttpRequest(config.customCloudUrl.trim(), "GET", null, null, null, 15000);
             if (response == null || response.trim().isEmpty() || "null".equalsIgnoreCase(response.trim())) {
                 return "[]";
             }
+            if (outHadExisting != null && outHadExisting.length > 0) outHadExisting[0] = true;
             return response;
         }
         return "[]";
     }
 
     private static void pushRemoteRemindersJson(CloudSyncConfig config, String remindersJson) throws Exception {
+        String normalized = (remindersJson == null || remindersJson.trim().isEmpty()) ? "[]" : remindersJson.trim();
+
         if (config.providerTypeValue == CloudSyncConfig.PROVIDER_ONE_CLICK_CLOUD) {
-            String url = config.getEffectiveOneClickUrl();
-            if (!url.isEmpty()) {
-                sendHttpRequest(url, "PUT", null, (remindersJson == null || remindersJson.isEmpty()) ? "[]" : remindersJson);
+            String roomId = CloudSyncConfig.sanitizeRoomId(config.oneClickRoomId);
+            if (!roomId.isEmpty()) {
+                pushOneClickCloudRoom(roomId, normalized);
             }
         } else if (config.providerTypeValue == CloudSyncConfig.PROVIDER_GITHUB_GIST) {
             String url = "https://api.github.com/gists/" + config.gistId.trim();
             JSONObject fileContent = new JSONObject();
-            fileContent.put("content", (remindersJson == null || remindersJson.isEmpty()) ? "[]" : remindersJson);
+            fileContent.put("content", normalized);
 
             JSONObject files = new JSONObject();
             files.put("strelo_reminders.json", fileContent);
@@ -358,21 +351,180 @@ public class CloudSyncService {
             payload.put("description", "StreloReminder Cloud Sync (PC <-> Android)");
             payload.put("files", files);
 
-            sendHttpRequest(url, "PATCH", config.gitHubToken.trim(), payload.toString());
+            sendHttpRequest(url, "PATCH", config.gitHubToken.trim(), payload.toString(), "application/json; charset=utf-8", 15000);
         } else if (config.providerTypeValue == CloudSyncConfig.PROVIDER_CUSTOM_URL) {
-            sendHttpRequest(config.customCloudUrl.trim(), "PUT", null, remindersJson);
+            sendHttpRequest(config.customCloudUrl.trim(), "PUT", null, normalized, "application/json; charset=utf-8", 15000);
         }
     }
 
-    private static String sendHttpRequest(String urlStr, String method, String bearerToken, String jsonBody) throws Exception {
+    private static String fetchOneClickCloudRoom(String roomId, boolean[] outHadExisting) throws Exception {
+        String cleanRoom = CloudSyncConfig.sanitizeRoomId(roomId);
+        String topic = "strelo_room_" + cleanRoom;
+        Exception lastEx = null;
+        boolean anyRelayReachable = false;
+
+        for (String baseUrl : ONE_CLICK_RELAY_BASES) {
+            String url = baseUrl + "/" + topic + "/raw?poll=1&since=all";
+            try {
+                String rawResp = sendHttpRequest(url, "GET", null, null, null, 8000);
+                anyRelayReachable = true;
+                String extracted = tryExtractLatestOneClickJson(rawResp);
+                if (extracted != null) {
+                    if (outHadExisting != null && outHadExisting.length > 0) {
+                        outHadExisting[0] = true;
+                    }
+                    synchronized (LAST_PUSHED_BY_ROOM) {
+                        LAST_PUSHED_BY_ROOM.put(cleanRoom, extracted);
+                    }
+                    return extracted;
+                }
+            } catch (Exception ex) {
+                lastEx = ex;
+            }
+        }
+
+        if (anyRelayReachable) {
+            return "[]";
+        }
+        if (lastEx != null) {
+            throw lastEx;
+        }
+        return "[]";
+    }
+
+    private static void pushOneClickCloudRoom(String roomId, String remindersJson) throws Exception {
+        String cleanRoom = CloudSyncConfig.sanitizeRoomId(roomId);
+        if (cleanRoom.isEmpty()) return;
+
+        synchronized (LAST_PUSHED_BY_ROOM) {
+            String last = LAST_PUSHED_BY_ROOM.get(cleanRoom);
+            if (last != null && last.equals(remindersJson)) {
+                return;
+            }
+        }
+
+        String topic = "strelo_room_" + cleanRoom;
+        String encodedBody = encodeOneClickPayload(remindersJson);
+        Exception lastEx = null;
+        boolean pushed = false;
+
+        for (String baseUrl : ONE_CLICK_RELAY_BASES) {
+            String url = baseUrl + "/" + topic;
+            try {
+                sendHttpRequest(url, "POST", null, encodedBody, "text/plain; charset=utf-8", 8000);
+                pushed = true;
+                break;
+            } catch (Exception ex) {
+                lastEx = ex;
+            }
+        }
+
+        if (pushed) {
+            synchronized (LAST_PUSHED_BY_ROOM) {
+                LAST_PUSHED_BY_ROOM.put(cleanRoom, remindersJson);
+            }
+            return;
+        }
+        if (lastEx != null) {
+            throw lastEx;
+        }
+    }
+
+    public static String encodeOneClickPayload(String json) {
+        String safeJson = (json == null || json.trim().isEmpty()) ? "[]" : json.trim();
+        byte[] utf8 = safeJson.getBytes(StandardCharsets.UTF_8);
+
+        if (utf8.length <= 2200) {
+            return SYNC_MARKER_RAW + Base64.encodeToString(utf8, Base64.NO_WRAP) + SYNC_MARKER_END;
+        }
+
+        try {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            try (GZIPOutputStream gzip = new GZIPOutputStream(baos)) {
+                gzip.write(utf8);
+            }
+            return SYNC_MARKER_GZIP + Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP) + SYNC_MARKER_END;
+        } catch (Exception e) {
+            return SYNC_MARKER_RAW + Base64.encodeToString(utf8, Base64.NO_WRAP) + SYNC_MARKER_END;
+        }
+    }
+
+    public static String tryExtractLatestOneClickJson(String responseBody) {
+        if (responseBody == null || responseBody.trim().isEmpty()) {
+            return null;
+        }
+
+        int lastRaw = responseBody.lastIndexOf(SYNC_MARKER_RAW);
+        int lastGz = responseBody.lastIndexOf(SYNC_MARKER_GZIP);
+
+        if (lastRaw < 0 && lastGz < 0) {
+            String trimmed = responseBody.trim();
+            if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+                return trimmed;
+            }
+            return null;
+        }
+
+        boolean isGzip = lastGz > lastRaw;
+        int markerStart = isGzip ? lastGz : lastRaw;
+        String marker = isGzip ? SYNC_MARKER_GZIP : SYNC_MARKER_RAW;
+        int payloadStart = markerStart + marker.length();
+
+        int endIdx = responseBody.indexOf(SYNC_MARKER_END, payloadStart);
+        String b64;
+        if (endIdx >= payloadStart) {
+            b64 = responseBody.substring(payloadStart, endIdx).trim();
+        } else {
+            int lineEnd = responseBody.length();
+            for (int i = payloadStart; i < responseBody.length(); i++) {
+                char c = responseBody.charAt(i);
+                if (c == '\r' || c == '\n' || c == '"' || c == ' ') {
+                    lineEnd = i;
+                    break;
+                }
+            }
+            b64 = responseBody.substring(payloadStart, lineEnd).trim();
+        }
+
+        if (b64.isEmpty()) return null;
+
+        try {
+            byte[] decoded = Base64.decode(b64, Base64.DEFAULT);
+            if (!isGzip) {
+                return new String(decoded, StandardCharsets.UTF_8);
+            }
+
+            try (ByteArrayInputStream bais = new ByteArrayInputStream(decoded);
+                 GZIPInputStream gzis = new GZIPInputStream(bais);
+                 ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+                byte[] buf = new byte[4096];
+                int r;
+                while ((r = gzis.read(buf)) > 0) {
+                    out.write(buf, 0, r);
+                }
+                return new String(out.toByteArray(), StandardCharsets.UTF_8);
+            }
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String sendHttpRequest(
+            String urlStr,
+            String method,
+            String bearerToken,
+            String body,
+            String contentType,
+            int timeoutMs) throws Exception {
+
         URL url = new URL(urlStr);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         try {
-            conn.setConnectTimeout(15000);
-            conn.setReadTimeout(15000);
+            conn.setConnectTimeout(timeoutMs);
+            conn.setReadTimeout(timeoutMs);
             conn.setUseCaches(false);
-            conn.setRequestProperty("User-Agent", "StreloReminder-Android/1.4");
-            conn.setRequestProperty("Accept", "application/vnd.github+json, application/json");
+            conn.setRequestProperty("User-Agent", BROWSER_USER_AGENT);
+            conn.setRequestProperty("Accept", "application/json, text/plain, */*");
 
             if ("PATCH".equalsIgnoreCase(method)) {
                 try {
@@ -389,10 +541,13 @@ public class CloudSyncService {
                 conn.setRequestProperty("Authorization", "Bearer " + bearerToken.trim());
             }
 
-            if (jsonBody != null && !jsonBody.isEmpty()) {
+            if (body != null && !body.isEmpty()) {
                 conn.setDoOutput(true);
-                conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-                byte[] bytes = jsonBody.getBytes(StandardCharsets.UTF_8);
+                conn.setRequestProperty(
+                        "Content-Type",
+                        (contentType != null && !contentType.isEmpty()) ? contentType : "application/json; charset=utf-8"
+                );
+                byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
                 try (OutputStream os = conn.getOutputStream()) {
                     os.write(bytes);
                     os.flush();
@@ -406,6 +561,7 @@ public class CloudSyncService {
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
                     String line;
                     while ((line = reader.readLine()) != null) {
+                        if (sb.length() > 0) sb.append('\n');
                         sb.append(line);
                     }
                 }

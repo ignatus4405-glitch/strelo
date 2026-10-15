@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 chcp 65001 >nul
 setlocal
 
@@ -33,6 +33,7 @@ if defined CSC (
         Models\CloudSyncConfig.cs ^
         Services\StorageService.cs ^
         Services\CloudSyncService.cs ^
+        Services\UpdateService.cs ^
         Services\IconGenerator.cs ^
         Forms\PopupNotificationForm.cs ^
         Forms\CloudSyncForm.cs ^

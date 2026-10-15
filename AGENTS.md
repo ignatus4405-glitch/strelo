@@ -1,15 +1,16 @@
 # Руководство для ИИ-агентов и разработчиков (AGENTS.md)
 
-Этот документ содержит полное описание архитектуры проекта **StreloReminder** (десктопного приложения Windows + мобильного приложения Android с двусторонней облачной синхронизацией), технических ограничений и обязательного регламента работы. Любой агент, продолжающий разработку в этом репозитории, **обязан** ознакомиться с этим файлом перед внесением изменений и строго следовать регламенту документирования и автосборки.
+Этот документ содержит полное описание архитектуры проекта **StreloReminder** (десктопного приложения Windows + мобильного приложения Android с двусторонней облачной синхронизацией и автообновлением через GitHub Releases), технических ограничений и обязательного регламента работы. Любой агент, продолжающий разработку в этом репозитории, **обязан** ознакомиться с этим файлом перед внесением изменений и строго следовать регламенту документирования и автосборки.
 
 ---
 
 ## 1. Обзор проекта
 
-**StreloReminder** — кроссплатформенная система напоминаний для **Windows 10/11 (C# WinForms)** и **Android 7.0+ (Java Android SDK)** с полной **двусторонней облачной синхронизацией через интернет**.
+**StreloReminder** — кроссплатформенная система напоминаний для **Windows 10/11 (C# WinForms)** и **Android 7.0+ (Java Android SDK)** с полной **двусторонней облачной синхронизацией через интернет** и **автоматическим обновлением версий через GitHub Releases**.
 - На **Windows** приложение работает в системном трее (`NotifyIcon`) и выводит всплывающее окно поверх всех окон (`TopMost = true`) со звуковым сигналом и кнопками откладывания.
 - На **Android** приложение планирует точные будильники через `AlarmManager`, выводит системные уведомления высокой важности (`IMPORTANCE_HIGH`) и полноэкранное всплывающее окно (`ReminderAlertActivity`) поверх блокировки экрана.
 - **Обмен данными между ПК и телефоном** происходит автоматически через облако (**GitHub Gist** или любой **Cloud JSON URL**) с разрешением конфликтов по метке времени `UpdatedAtUnixMs` и поддержкой мягкого удаления (`IsDeleted`). Для мгновенной связки компьютера и телефона используется единая строка подключения **`STRELO1:...`**.
+- **Автоматическое обновление версий (GitHub Releases)**: при каждой успешной сборке в GitHub Actions автоматически формируется версия `1.3.<run_number>` и создаётся GitHub Release `v1.3.<run_number>` с прикреплёнными файлами `StreloReminder.exe` и `StreloReminder-Android.apk`. Клиенты Windows и Android автоматически опрашивают `https://api.github.com/repos/ignatus4405-glitch/strelo/releases/latest`, уведомляют пользователя о выходе новой версии и позволяют установить обновление в 1 клик.
 
 ---
 
@@ -19,9 +20,9 @@
 StreloReminder/
 ├── .github/
 │   └── workflows/
-│       └── build.yml               # CI/CD пайплайн GitHub Actions (автосборка Windows EXE + Android APK)
+│       └── build.yml               # CI/CD пайплайн GitHub Actions (Windows EXE + Android APK + публикация GitHub Release)
 ├── Forms/
-│   ├── MainForm.cs                 # Главное окно Windows: редактор, таблица, таймер, трей, фоновая синхронизация
+│   ├── MainForm.cs                 # Главное окно Windows: редактор, таблица, таймер, трей, синхронизация и проверка обновлений
 │   ├── PopupNotificationForm.cs    # Всплывающее окно уведомления поверх всех окон (TopMost + Snooze)
 │   └── CloudSyncForm.cs            # Диалог настройки облачной синхронизации ПК ↔ Android (Gist / Cloud URL / код STRELO1)
 ├── Models/
@@ -30,7 +31,8 @@ StreloReminder/
 ├── Services/
 │   ├── IconGenerator.cs            # Программная отрисовка иконки колокольчика через System.Drawing (GDI+)
 │   ├── StorageService.cs           # Сериализация напоминаний и настроек облака в %APPDATA%\StreloReminder\
-│   └── CloudSyncService.cs         # Двусторонняя синхронизация и слияние (MergeReminders) через GitHub Gist / Cloud URL
+│   ├── CloudSyncService.cs         # Двусторонняя синхронизация и слияние (MergeReminders) через GitHub Gist / Cloud URL
+│   └── UpdateService.cs            # Автопроверка обновлений через GitHub Releases API и самообновление StreloReminder.exe
 ├── android/                        # Нативное мобильное приложение для Android (Java, minSdk 24, targetSdk 34)
 │   ├── settings.gradle, build.gradle, gradle.properties
 │   └── app/
@@ -39,13 +41,14 @@ StreloReminder/
 │           ├── AndroidManifest.xml
 │           ├── res/drawable/ic_bell.xml
 │           └── java/com/strelo/reminder/
-│               ├── MainActivity.java           # Главный экран Android: список, редактор 6 единиц времени, настройка облака
+│               ├── MainActivity.java           # Главный экран Android: список, редактор 6 единиц времени, облако, обновления
 │               ├── ReminderAlertActivity.java  # Всплывающее окно уведомления на Android (звук, вибрация, Snooze)
 │               ├── AlarmScheduler.java         # Планировщик точных будильников AlarmManager + NotificationChannel
 │               ├── ReminderAlarmReceiver.java  # BroadcastReceiver срабатывания будильников и BOOT_COMPLETED
 │               ├── ReminderItem.java           # Модель напоминания (100% совместимая по JSON с Windows ReminderItem.cs)
 │               ├── CloudSyncConfig.java        # Настройки облака и парсер кода STRELO1:...
 │               ├── CloudSyncService.java       # Двусторонняя синхронизация Android ↔ Облако ↔ ПК
+│               ├── UpdateService.java          # Проверка выхода новой версии APK через GitHub Releases API
 │               └── StorageService.java         # Хранение данных в SharedPreferences
 ├── Program.cs                      # Точка входа Windows (Main), защита от повторного запуска через именованный Mutex
 ├── StreloReminder.csproj           # Проектный файл SDK-стиля (net8.0-windows, UseWindowsForms=true)
@@ -74,6 +77,11 @@ StreloReminder/
    - Алгоритм `MergeReminders`: сопоставляет локальный и облачный списки по `Id`. Для каждого `Id` выбирается запись с большим `UpdatedAtUnixMs`.
    - Метод `ToConnectionCode()` кодирует конфигурацию облака в строку `STRELO1:<Base64(JSON)>`, которую можно скопировать в буфер обмена и вставить на другом устройстве одной кнопкой.
 
+3. **`Services/UpdateService.cs` (Windows) и `UpdateService.java` (Android)**:
+   - Опрашивают `https://api.github.com/repos/ignatus4405-glitch/strelo/releases/latest` и сравнивают `tag_name` релиза с текущей версией (`CurrentVersion` / `CURRENT_VERSION`).
+   - На Windows `UpdateService.DownloadAndInstallUpdate` скачивает `StreloReminder.exe` из ассетов релиза во временный файл `.update.exe` и запускает фоновый `.bat`-скрипт, который заменяет основной `.exe` после закрытия процесса и перезапускает обновлённую версию.
+   - На Android `MainActivity` отправляет системное уведомление и открывает прямую ссылку на скачивание `StreloReminder-Android.apk` из релиза.
+
 ---
 
 ## 3. Технические правила и ограничения (ВАЖНО!)
@@ -83,8 +91,10 @@ StreloReminder/
    - Используйте синтаксис, совместимый с **C# 5.0** (без `$"..."`, `?.`, `nameof`, `out var`).
    - При добавлении нового `.cs` файла обязательно добавляйте его в `build.bat` и в шаг `Build standalone .NET Framework EXE` в `.github/workflows/build.yml`.
    - Все `.cs` файлы должны быть сохранены в кодировке **UTF-8 с BOM (`EF BB BF`)** и окончаниями строк `CRLF`.
-   - При добавлении дочерних элементов с `AnchorStyles.Right` внутрь контейнера (`Panel`, `GroupBox`) задавайте финальный `Size` контейнера **до** вызова `Controls.Add(...)`.
-2. **Совместимость JSON-протокола Windows ↔ Android**:
+2. **Правила вёрстки кнопок на Windows и Android (без обрезания и наложения)**:
+   - На **Windows** (`Forms/MainForm.cs`): в горизонтальных панелях (`headerPanel`, `listToolbar`) используйте `AnchorStyles.Top | AnchorStyles.Left` с непересекающимися X-координатами и запасом ширины для русских надписей (например, `btnClearDone` >= `190px`), чтобы кнопки не смещались друг на друга и не переносили текст на вторую строку.
+   - На **Android** (`MainActivity.java`, `ReminderAlertActivity.java`): для всех кнопок (`Button`) задавайте высоту `ViewGroup.LayoutParams.WRAP_CONTENT` в сочетании с `setMinHeight(dp(...))`, `setSingleLine(true)` и `setIncludeFontPadding(false)`, чтобы текст никогда не обрезался по вертикали.
+3. **Совместимость JSON-протокола Windows ↔ Android**:
    - Любое новое поле в `ReminderItem` или `CloudSyncConfig` должно одновременно добавляться и в C#-классы (`Models/`), и в Java-классы (`android/app/src/main/java/com/strelo/reminder/`).
 
 ---
@@ -102,5 +112,5 @@ StreloReminder/
    - Перед коммитом синхронизировать указатель ветки с удалённым репозиторием: `git fetch origin && git reset --soft origin/<текущая-ветка>`.
    - Выполнить `git add -A && git commit -m "..."` и отправить изменения в текущую рабочую ветку (`git push origin <текущая-ветка>`).
 4. **Проконтролировать выполнение GitHub Actions**:
-   - Дождаться запуска workflow `Windows & Android Build & Artifacts` через `gh run list --branch <текущая-ветка>` и проверить успешное завершение обоих джобов (`build-windows` и `build-android`) через `gh run watch <run-id> --exit-status`.
+   - Дождаться запуска workflow `Windows & Android Build & Artifacts` через `gh run list --branch <текущая-ветка>` и проверить успешное завершение всех джобов (`build-windows`, `build-android`, `publish-release`) через `gh run watch <run-id> --exit-status`.
    - Если любая из сборок завершилась с ошибкой — изучить лог через `gh run view <run-id> --log-failed`, исправить ошибку, задокументировать исправление и повторно запустить сборку до получения статуса `completed / success`.

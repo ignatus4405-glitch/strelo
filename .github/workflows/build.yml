@@ -21,6 +21,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Stamp CI Build Version into UpdateService.cs
+        shell: pwsh
+        run: |
+          $ver = "1.3.${{ github.run_number }}"
+          $path = "Services/UpdateService.cs"
+          $content = Get-Content $path -Raw -Encoding UTF8
+          $content = $content -replace 'CurrentVersion = "[^"]+"', "CurrentVersion = `"$ver`""
+          [System.IO.File]::WriteAllText((Resolve-Path $path), $content, (New-Object System.Text.UTF8Encoding($true)))
+          Write-Host "Stamped Windows version: $ver"
+
       - name: Setup .NET 8 SDK
         uses: actions/setup-dotnet@v4
         with:
@@ -47,6 +57,7 @@ jobs:
             Models\CloudSyncConfig.cs `
             Services\StorageService.cs `
             Services\CloudSyncService.cs `
+            Services\UpdateService.cs `
             Services\IconGenerator.cs `
             Forms\PopupNotificationForm.cs `
             Forms\CloudSyncForm.cs `
@@ -96,6 +107,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Stamp CI Build Version into Android sources
+        run: |
+          VER="1.3.${{ github.run_number }}"
+          CODE="${{ github.run_number }}"
+          sed -i "s/CURRENT_VERSION = \"[^\"]*\"/CURRENT_VERSION = \"$VER\"/g" android/app/src/main/java/com/strelo/reminder/UpdateService.java
+          sed -i "s/versionCode [0-9]*/versionCode $CODE/g" android/app/build.gradle
+          sed -i "s/versionName \"[^\"]*\"/versionName \"$VER\"/g" android/app/build.gradle
+          echo "Stamped Android version: $VER (code $CODE)"
+
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
@@ -121,3 +141,49 @@ jobs:
           name: StreloReminder-Android-APK
           path: artifacts/android/StreloReminder-Android.apk
           if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release (Auto-Update Feed)
+    needs: [build-windows, build-android]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Windows Standalone EXE Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: StreloReminder-Standalone-Win10-11
+          path: release-assets
+
+      - name: Download Android APK Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: StreloReminder-Android-APK
+          path: release-assets
+
+      - name: Create or Update GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v1.3.${{ github.run_number }}"
+          TITLE="StreloReminder $TAG (Windows EXE + Android APK)"
+          NOTES="Автоматическая сборка **StreloReminder $TAG** для Windows и Android.
+
+          ### Файлы для скачивания и автообновления:
+          - **StreloReminder.exe** — автономная версия для Windows 10/11 (не требует установки .NET).
+          - **StreloReminder-Android.apk** — установочный пакет для Android (7.0+).
+
+          Клиенты Windows и Android автоматически проверяют наличие этого релиза через GitHub API и уведомляют пользователя о выходе новой версии."
+
+          ls -lh release-assets/
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-assets/StreloReminder.exe release-assets/StreloReminder-Android.apk --clobber
+          else
+            gh release create "$TAG" release-assets/StreloReminder.exe release-assets/StreloReminder-Android.apk \
+              --title "$TITLE" \
+              --notes "$NOTES" \
+              --target "${{ github.sha }}"
+          fi

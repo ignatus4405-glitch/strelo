@@ -4,6 +4,41 @@
 
 ---
 
+## [2026-10-15] — Исправление размеров кнопок и перекрытий (Windows + Android) и система автоматического обновления версий через GitHub Releases
+
+### Что сделано
+1. **Исправлены размеры кнопок и перекрытие элементов в Windows-приложении (`Forms/MainForm.cs`)**:
+   - **Шапка окна (`headerPanel`)**: все элементы переведены на фиксированную горизонтальную привязку `AnchorStyles.Top | AnchorStyles.Left` с точными непересекающимися координатами (`_btnSyncNow` X=268, `_btnCloudSettings` X=350, `_btnCheckUpdate` X=490, `_chkDoNotDisturb` X=626, `_chkAutoStart` X=845), что полностью устранило наложение кнопки `«Облако (Android)»` на чекбокс `«Режим „Не беспокоить“»` при любом DPI и масштабировании экрана.
+   - **Панель кнопок над списком (`listToolbar`)**: ширина кнопки **«Очистить выполненные»** увеличена с `152px` до **`194px`** (`Font = 8.5pt Bold`, `AnchorStyles.Top | AnchorStyles.Left`), благодаря чему оба слова гарантированно помещаются в одну строку и второе слово никогда не переносится и не обрезается по вертикали.
+2. **Исправлены размеры кнопок и вертикальное обрезание текста в Android-приложении (`MainActivity.java`, `ReminderAlertActivity.java`)**:
+   - Панель основных действий в `MainActivity.java` перестроена в **два ряда с динамической высотой `WRAP_CONTENT`** (`setIncludeFontPadding(false)`, `setSingleLine(true)`):
+     - Ряд 1: полноширинная кнопка **`+ Новое напоминание`** (`MATCH_PARENT`, `minHeight = 46dp`).
+     - Ряд 2: две равные кнопки по 50% ширины экрана — **`Тест уведомления`** и **`Очистить выполненные`** (`minHeight = 42dp`).
+   - Все кнопки в шапке (`Синхр.`, `Облако (ПК)`, `Обновл.`), карточках напоминаний (`Изменить`, `Пауза`, `+10 мин`, `Удалить`), диалогах и на экране тревоги (`ReminderAlertActivity.java`) переведены с жёсткой высоты `dp(...)` на `ViewGroup.LayoutParams.WRAP_CONTENT` с `minHeight`, чтобы текст никогда не обрезался снизу.
+3. **Автоматическое обновление версий через GitHub Releases с уведомлением клиента (`Services/UpdateService.cs`, `android/.../UpdateService.java`, `.github/workflows/build.yml`)**:
+   - **Автоматическая публикация релизов в CI (`.github/workflows/build.yml`)**:
+     - При каждой сборке в GitHub Actions номер версии автоматически формируется как `1.3.<run_number>` и прописывается в `Services/UpdateService.cs`, `UpdateService.java` и `android/app/build.gradle`.
+     - Добавлен джоб `publish-release` (`needs: [build-windows, build-android]`), который автоматически создаёт GitHub Release `v1.3.<run_number>` и прикрепляет к нему бинарные файлы **`StreloReminder.exe`** и **`StreloReminder-Android.apk`**.
+   - **Клиент автообновления для Windows (`Services/UpdateService.cs`, `Forms/MainForm.cs`)**:
+     - Автоматически проверяет последний релиз через `https://api.github.com/repos/ignatus4405-glitch/strelo/releases/latest` через 4 секунды после запуска и далее каждые 30 минут, а также вручную по кнопке **«Обновление»** в шапке и из меню системного трея.
+     - При выходе новой версии показывает всплывающее уведомление в трее (`ShowBalloonTip`), подсвечивает кнопку зелёным цветом (`«Обновить v1.3.X»`) и предлагает в 1 клик автоматически скачать новый `StreloReminder.exe`, заменить текущий файл через вспомогательный скрипт и перезапустить обновлённую программу.
+   - **Клиент автообновления для Android (`UpdateService.java`, `MainActivity.java`)**:
+     - Автоматически проверяет последний релиз на GitHub через 3 секунды после запуска и каждые 30 минут, а также вручную по кнопке **«Обновл.»** в шапке.
+     - При обнаружении новой версии отправляет системное уведомление Android (`NotificationManager`), меняет кнопку в шапке на зелёную `«v1.3.X ⬇»` и показывает диалог с кнопкой **«Скачать APK»**, открывающей прямую ссылку на `StreloReminder-Android.apk` из последнего релиза GitHub.
+
+### Затронутые файлы
+- `Services/UpdateService.cs` (создан)
+- `Forms/MainForm.cs` (обновлён)
+- `build.bat` (обновлён)
+- `android/app/src/main/java/com/strelo/reminder/UpdateService.java` (создан)
+- `android/app/src/main/java/com/strelo/reminder/MainActivity.java` (обновлён)
+- `android/app/src/main/java/com/strelo/reminder/ReminderAlertActivity.java` (обновлён)
+- `android/app/build.gradle` (обновлён)
+- `.github/workflows/build.yml` (обновлён)
+- `AGENTS.md`, `README.md`, `CHANGELOG.md` (обновлены)
+
+---
+
 ## [2026-10-14] — Разработка мобильного приложения Android и двусторонней облачной синхронизации (ПК Windows ↔ Android)
 
 ### Что сделано

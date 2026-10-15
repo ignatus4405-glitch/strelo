@@ -16,6 +16,7 @@ import android.text.InputType;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
@@ -162,7 +163,13 @@ public class ReminderAlertActivity extends Activity {
         for (int i = 0; i < quickLabels.length; i++) {
             final int[] off = quickOffsets[i];
             Button btn = createStyledButton(quickLabels[i], "#E2E8F0", "#1E293B");
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(42), 1f);
+            btn.setSingleLine(true);
+            btn.setMinHeight(dp(42));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    1f
+            );
             if (i > 0) lp.leftMargin = dp(6);
             btn.setLayoutParams(lp);
             btn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
@@ -200,7 +207,13 @@ public class ReminderAlertActivity extends Activity {
         spUnit.setLayoutParams(spLp);
 
         Button btnCustomSnooze = createStyledButton("Отложить", "#DBEAFE", "#1E40AF");
-        LinearLayout.LayoutParams btnCustomLp = new LinearLayout.LayoutParams(dp(120), dp(44));
+        btnCustomSnooze.setSingleLine(true);
+        btnCustomSnooze.setMinHeight(dp(44));
+        btnCustomSnooze.setPadding(dp(14), dp(8), dp(14), dp(8));
+        LinearLayout.LayoutParams btnCustomLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
         btnCustomSnooze.setLayoutParams(btnCustomLp);
         btnCustomSnooze.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -245,12 +258,14 @@ public class ReminderAlertActivity extends Activity {
         // Главная кнопка «Понятно (Выполнено)»
         String completeLabel = currentReminder.recurrenceValue == ReminderItem.RECURRENCE_NONE
                 ? "✓  Понятно (Выполнено)"
-                : "✓  ОК (Перенести на следующий повтор)";
+                : "✓  ОК (Следующий повтор)";
         Button btnComplete = createStyledButton(completeLabel, "#16A34A", "#FFFFFF");
-        btnComplete.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        btnComplete.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        btnComplete.setMinHeight(dp(50));
+        btnComplete.setPadding(dp(14), dp(12), dp(14), dp(12));
         LinearLayout.LayoutParams completeLp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(52)
+                ViewGroup.LayoutParams.WRAP_CONTENT
         );
         completeLp.topMargin = dp(20);
         btnComplete.setLayoutParams(completeLp);
@@ -355,10 +370,12 @@ public class ReminderAlertActivity extends Activity {
     private Button createStyledButton(String text, String bgColorHex, String textColorHex) {
         Button btn = new Button(this);
         btn.setAllCaps(false);
+        btn.setIncludeFontPadding(false);
+        btn.setGravity(Gravity.CENTER);
         btn.setText(text);
         btn.setTextColor(Color.parseColor(textColorHex));
         btn.setTypeface(Typeface.DEFAULT_BOLD);
-        btn.setPadding(dp(6), dp(4), dp(6), dp(4));
+        btn.setPadding(dp(8), dp(6), dp(8), dp(6));
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(Color.parseColor(bgColorHex));
         bg.setCornerRadius(dp(8));

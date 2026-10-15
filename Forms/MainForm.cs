@@ -24,6 +24,7 @@ namespace StreloReminder.Forms
         private Label _lblSyncStatus;
         private Button _btnSyncNow;
         private Button _btnCloudSettings;
+        private Button _btnCheckUpdate;
         private CheckBox _chkDoNotDisturb;
         private CheckBox _chkAutoStart;
 
@@ -62,10 +63,17 @@ namespace StreloReminder.Forms
         private ListView _lvReminders;
         private Label _lblSummary;
 
-        // Состояние и облачная синхронизация
+        // Состояние, облачная синхронизация и автообновление
         private CloudSyncConfig _cloudConfig;
         private bool _isSyncInProgress;
         private int _secondsSinceLastSync;
+
+        private bool _isUpdateCheckInProgress;
+        private int _secondsSinceStartup;
+        private bool _initialUpdateCheckDone;
+        private string _notifiedUpdateVersion;
+        private UpdateCheckResult _latestAvailableUpdate;
+
         private string _editingReminderId;
         private bool _isExiting;
         private bool _isDoNotDisturb;
@@ -91,7 +99,7 @@ namespace StreloReminder.Forms
 
         private void InitializeComponent()
         {
-            Text = "Strelo — Напоминалка для Windows (Синхронизация с Android)";
+            Text = string.Format("Strelo — Напоминалка для Windows v{0} (Синхронизация с Android)", UpdateService.CurrentVersion);
             Icon = IconGenerator.GetAppIcon(false);
             ClientSize = new Size(1060, 700);
             MinimumSize = new Size(1076, 738);
@@ -100,39 +108,39 @@ namespace StreloReminder.Forms
             Font = new Font("Segoe UI", 9.25f, FontStyle.Regular);
 
             // 1. ВЕРХНЯЯ ПАНЕЛЬ (ШАПКА)
-            // Важно задать Size до добавления дочерних элементов с AnchorStyles.Right
+            // Все элементы шапки используют фиксированные координаты слева направо (Anchor Top | Left),
+            // чтобы ни при каком масштабировании кнопки не перекрывали чекбоксы
             Panel headerPanel = new Panel
             {
                 Location = new Point(0, 0),
-                Size = new Size(1060, 60),
+                Size = new Size(1060, 62),
                 Dock = DockStyle.Top,
-                BackColor = Color.FromArgb(30, 58, 138),
-                Padding = new Padding(18, 0, 18, 0)
+                BackColor = Color.FromArgb(30, 58, 138)
             };
 
             Label lblAppTitle = new Label
             {
                 Text = "🔔 Strelo Напоминалка",
                 ForeColor = Color.White,
-                Font = new Font("Segoe UI", 14f, FontStyle.Bold),
+                Font = new Font("Segoe UI", 13.5f, FontStyle.Bold),
                 AutoSize = true,
-                Location = new Point(18, 8)
+                Location = new Point(16, 7)
             };
 
             _lblClock = new Label
             {
-                Text = "Сейчас: " + DateTime.Now.ToString("dd.MM.yyyy HH:mm:ss"),
+                Text = string.Format("Сейчас: {0:dd.MM.yyyy HH:mm:ss}  •  v{1}", DateTime.Now, UpdateService.CurrentVersion),
                 ForeColor = Color.FromArgb(191, 219, 254),
-                Font = new Font("Segoe UI", 9f, FontStyle.Regular),
+                Font = new Font("Segoe UI", 8.75f, FontStyle.Regular),
                 AutoSize = true,
-                Location = new Point(20, 35)
+                Location = new Point(18, 35)
             };
 
             _btnSyncNow = new Button
             {
                 Text = "Синхр.",
                 Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
-                Location = new Point(275, 8),
+                Location = new Point(268, 8),
                 Size = new Size(76, 25),
                 Padding = new Padding(0),
                 FlatStyle = FlatStyle.Flat,
@@ -147,8 +155,8 @@ namespace StreloReminder.Forms
             {
                 Text = "Облако (Android)",
                 Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
-                Location = new Point(357, 8),
-                Size = new Size(145, 25),
+                Location = new Point(350, 8),
+                Size = new Size(134, 25),
                 Padding = new Padding(0),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(37, 99, 235),
@@ -158,24 +166,38 @@ namespace StreloReminder.Forms
             _btnCloudSettings.FlatAppearance.BorderColor = Color.FromArgb(96, 165, 250);
             _btnCloudSettings.Click += OnOpenCloudSyncSettingsClick;
 
+            _btnCheckUpdate = new Button
+            {
+                Text = "Обновление",
+                Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
+                Location = new Point(490, 8),
+                Size = new Size(116, 25),
+                Padding = new Padding(0),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(37, 99, 235),
+                ForeColor = Color.White,
+                Cursor = Cursors.Hand
+            };
+            _btnCheckUpdate.FlatAppearance.BorderColor = Color.FromArgb(96, 165, 250);
+            _btnCheckUpdate.Click += delegate { CheckForGitHubUpdatesAsync(true); };
+
             _lblSyncStatus = new Label
             {
                 Text = "Облако: не настроено",
                 ForeColor = Color.FromArgb(191, 219, 254),
                 Font = new Font("Segoe UI", 8.25f, FontStyle.Regular),
                 AutoSize = true,
-                Location = new Point(275, 36)
+                Location = new Point(268, 36)
             };
 
             _chkDoNotDisturb = new CheckBox
             {
-                Text = "Режим «Не беспокоить» (пауза)",
+                Text = "Режим «Не беспокоить»",
                 ForeColor = Color.White,
                 BackColor = Color.Transparent,
                 Font = new Font("Segoe UI", 9f, FontStyle.Bold),
                 AutoSize = true,
-                Location = new Point(540, 20),
-                Anchor = AnchorStyles.Top | AnchorStyles.Right,
+                Location = new Point(626, 20),
                 Cursor = Cursors.Hand
             };
             _chkDoNotDisturb.CheckedChanged += OnDoNotDisturbChanged;
@@ -187,8 +209,7 @@ namespace StreloReminder.Forms
                 BackColor = Color.Transparent,
                 Font = new Font("Segoe UI", 9f, FontStyle.Regular),
                 AutoSize = true,
-                Location = new Point(835, 20),
-                Anchor = AnchorStyles.Top | AnchorStyles.Right,
+                Location = new Point(845, 20),
                 Cursor = Cursors.Hand,
                 Checked = StorageService.IsAutoStartEnabled()
             };
@@ -198,6 +219,7 @@ namespace StreloReminder.Forms
             headerPanel.Controls.Add(_lblClock);
             headerPanel.Controls.Add(_btnSyncNow);
             headerPanel.Controls.Add(_btnCloudSettings);
+            headerPanel.Controls.Add(_btnCheckUpdate);
             headerPanel.Controls.Add(_lblSyncStatus);
             headerPanel.Controls.Add(_chkDoNotDisturb);
             headerPanel.Controls.Add(_chkAutoStart);
@@ -214,7 +236,6 @@ namespace StreloReminder.Forms
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
             };
 
-            // Заголовок напоминания
             Label lblTitle = new Label
             {
                 Text = "О чём напомнить:",
@@ -248,7 +269,6 @@ namespace StreloReminder.Forms
                 ScrollBars = ScrollBars.Vertical
             };
 
-            // Режим выбора времени (Таймер или Точное время)
             Label lblWhen = new Label
             {
                 Text = "Когда сработать:",
@@ -600,6 +620,7 @@ namespace StreloReminder.Forms
             _grpEditor.Controls.Add(btnMinimizeToTray);
 
             // 3. ПАНЕЛЬ УПРАВЛЕНИЯ СПИСКОМ НАПОМИНАНИЙ
+            // Все кнопки имеют достаточную ширину для размещения в одну строку без переноса слов
             Panel listToolbar = new Panel
             {
                 Location = new Point(16, 340),
@@ -617,22 +638,22 @@ namespace StreloReminder.Forms
                 AutoSize = true
             };
 
-            Button btnEdit = CreateToolbarButton("Изменить", 408, 94, Color.FromArgb(226, 232, 240), Color.FromArgb(30, 41, 59));
+            Button btnEdit = CreateToolbarButton("Изменить", 368, 92, Color.FromArgb(226, 232, 240), Color.FromArgb(30, 41, 59));
             btnEdit.Click += OnEditSelectedClick;
 
-            Button btnToggle = CreateToolbarButton("Вкл / Выкл", 508, 100, Color.FromArgb(226, 232, 240), Color.FromArgb(30, 41, 59));
+            Button btnToggle = CreateToolbarButton("Вкл / Выкл", 466, 98, Color.FromArgb(226, 232, 240), Color.FromArgb(30, 41, 59));
             btnToggle.Click += OnToggleSelectedClick;
 
-            Button btnSnooze10 = CreateToolbarButton("+10 мин", 614, 88, Color.FromArgb(219, 234, 254), Color.FromArgb(30, 64, 175));
+            Button btnSnooze10 = CreateToolbarButton("+10 мин", 570, 86, Color.FromArgb(219, 234, 254), Color.FromArgb(30, 64, 175));
             btnSnooze10.Click += OnSnooze10SelectedClick;
 
-            Button btnDelete = CreateToolbarButton("Удалить", 708, 90, Color.FromArgb(254, 226, 226), Color.FromArgb(185, 28, 28));
+            Button btnDelete = CreateToolbarButton("Удалить", 662, 90, Color.FromArgb(254, 226, 226), Color.FromArgb(185, 28, 28));
             btnDelete.Click += OnDeleteSelectedClick;
 
-            Button btnClearDone = CreateToolbarButton("Очистить выполненные", 804, 152, Color.FromArgb(226, 232, 240), Color.FromArgb(51, 65, 85));
+            Button btnClearDone = CreateToolbarButton("Очистить выполненные", 758, 194, Color.FromArgb(226, 232, 240), Color.FromArgb(51, 65, 85));
             btnClearDone.Click += OnClearCompletedClick;
 
-            Button btnOpenFolder = CreateToolbarButton("Папка", 962, 66, Color.FromArgb(226, 232, 240), Color.FromArgb(51, 65, 85));
+            Button btnOpenFolder = CreateToolbarButton("Папка", 958, 70, Color.FromArgb(226, 232, 240), Color.FromArgb(51, 65, 85));
             btnOpenFolder.Click += OnOpenStorageFolderClick;
 
             listToolbar.Controls.Add(_lblSummary);
@@ -771,7 +792,7 @@ namespace StreloReminder.Forms
                 Location = new Point(x, 4),
                 Size = new Size(width, 32),
                 Padding = new Padding(0),
-                Anchor = AnchorStyles.Top | AnchorStyles.Right,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left,
                 FlatStyle = FlatStyle.Flat,
                 BackColor = backColor,
                 ForeColor = foreColor,
@@ -792,6 +813,9 @@ namespace StreloReminder.Forms
 
             ToolStripMenuItem syncNowItem = new ToolStripMenuItem("Синхронизировать с Android сейчас");
             syncNowItem.Click += delegate { TriggerBackgroundCloudSync(true); };
+
+            ToolStripMenuItem checkUpdatesItem = new ToolStripMenuItem("Проверить обновления на GitHub");
+            checkUpdatesItem.Click += delegate { CheckForGitHubUpdatesAsync(true); };
 
             ToolStripMenuItem quick5Item = new ToolStripMenuItem("Быстрое напоминание через 5 мин");
             quick5Item.Click += delegate { CreateQuickReminder(5); };
@@ -814,6 +838,7 @@ namespace StreloReminder.Forms
 
             _trayMenu.Items.Add(openItem);
             _trayMenu.Items.Add(syncNowItem);
+            _trayMenu.Items.Add(checkUpdatesItem);
             _trayMenu.Items.Add(new ToolStripSeparator());
             _trayMenu.Items.Add(quick5Item);
             _trayMenu.Items.Add(quick15Item);
@@ -826,7 +851,7 @@ namespace StreloReminder.Forms
             _notifyIcon = new NotifyIcon
             {
                 Icon = IconGenerator.GetAppIcon(false),
-                Text = "Strelo — Напоминалка для Windows",
+                Text = "Strelo — Напоминалка для Windows v" + UpdateService.CurrentVersion,
                 ContextMenuStrip = _trayMenu,
                 Visible = true
             };
@@ -863,7 +888,7 @@ namespace StreloReminder.Forms
         private void OnMainTimerTick(object sender, EventArgs e)
         {
             DateTime now = DateTime.Now;
-            _lblClock.Text = "Сейчас: " + now.ToString("dd.MM.yyyy HH:mm:ss");
+            _lblClock.Text = string.Format("Сейчас: {0:dd.MM.yyyy HH:mm:ss}  •  v{1}", now, UpdateService.CurrentVersion);
 
             if (_rbTimerMode.Checked)
             {
@@ -894,6 +919,178 @@ namespace StreloReminder.Forms
                 {
                     _secondsSinceLastSync = 0;
                     TriggerBackgroundCloudSync(false);
+                }
+            }
+
+            // Автоматическая проверка выхода новой версии на GitHub (через 4 сек после запуска и далее каждые 30 минут)
+            _secondsSinceStartup++;
+            if (!_initialUpdateCheckDone && _secondsSinceStartup >= 4)
+            {
+                _initialUpdateCheckDone = true;
+                CheckForGitHubUpdatesAsync(false);
+            }
+            else if (_secondsSinceStartup > 0 && _secondsSinceStartup % 1800 == 0)
+            {
+                CheckForGitHubUpdatesAsync(false);
+            }
+        }
+
+        private void CheckForGitHubUpdatesAsync(final_bool_wrapper manualRequest)
+        {
+            CheckForGitHubUpdatesInternal(manualRequest.Value);
+        }
+
+        private struct final_bool_wrapper
+        {
+            public bool Value;
+            public static implicit operator final_bool_wrapper(bool v)
+            {
+                final_bool_wrapper w = new final_bool_wrapper();
+                w.Value = v;
+                return w;
+            }
+        }
+
+        private void CheckForGitHubUpdatesInternal(bool isManualUserClick)
+        {
+            if (isManualUserClick && _latestAvailableUpdate != null && _latestAvailableUpdate.IsUpdateAvailable)
+            {
+                PromptInstallUpdate(_latestAvailableUpdate);
+                return;
+            }
+
+            if (_isUpdateCheckInProgress)
+                return;
+
+            _isUpdateCheckInProgress = true;
+            if (isManualUserClick)
+            {
+                _btnCheckUpdate.Text = "Проверка...";
+            }
+
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                UpdateCheckResult res = UpdateService.CheckForUpdates();
+                try
+                {
+                    if (!IsDisposed && IsHandleCreated)
+                    {
+                        BeginInvoke((MethodInvoker)delegate
+                        {
+                            _isUpdateCheckInProgress = false;
+                            HandleUpdateCheckResult(res, isManualUserClick);
+                        });
+                    }
+                    else
+                    {
+                        _isUpdateCheckInProgress = false;
+                    }
+                }
+                catch
+                {
+                    _isUpdateCheckInProgress = false;
+                }
+            });
+        }
+
+        private void HandleUpdateCheckResult(UpdateCheckResult res, bool isManualUserClick)
+        {
+            if (res == null || !res.Success)
+            {
+                _btnCheckUpdate.Text = "Обновление";
+                if (isManualUserClick)
+                {
+                    MessageBox.Show(
+                        res != null && !string.IsNullOrEmpty(res.ErrorMessage)
+                            ? res.ErrorMessage
+                            : "Не удалось проверить наличие обновлений на GitHub.",
+                        "Проверка обновлений",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                }
+                return;
+            }
+
+            if (res.IsUpdateAvailable)
+            {
+                _latestAvailableUpdate = res;
+                _btnCheckUpdate.Text = "Обновить v" + res.LatestVersion;
+                _btnCheckUpdate.BackColor = Color.FromArgb(22, 163, 74);
+                _btnCheckUpdate.FlatAppearance.BorderColor = Color.FromArgb(134, 239, 172);
+
+                bool alreadyNotifiedThisVersion = string.Equals(_notifiedUpdateVersion, res.LatestVersion, StringComparison.OrdinalIgnoreCase);
+                if (isManualUserClick || !alreadyNotifiedThisVersion)
+                {
+                    _notifiedUpdateVersion = res.LatestVersion;
+                    _notifyIcon.ShowBalloonTip(
+                        5000,
+                        "Доступна новая версия Strelo v" + res.LatestVersion,
+                        "Вышло обновление программы на GitHub! Нажмите кнопку «Обновить» для автоматической установки.",
+                        ToolTipIcon.Info);
+
+                    PromptInstallUpdate(res);
+                }
+            }
+            else
+            {
+                _btnCheckUpdate.Text = "Обновление";
+                if (isManualUserClick)
+                {
+                    MessageBox.Show(
+                        string.Format("У вас установлена самая актуальная версия программы (v{0}).", res.CurrentVersion),
+                        "Обновлений нет",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+                }
+            }
+        }
+
+        private void PromptInstallUpdate(UpdateCheckResult res)
+        {
+            string msg = string.Format(
+                "Доступна новая версия StreloReminder на GitHub!\n\n" +
+                "Текущая версия: v{0}\n" +
+                "Новая версия: v{1}\n\n" +
+                "Скачать и автоматически установить новую версию прямо сейчас?",
+                res.CurrentVersion,
+                res.LatestVersion);
+
+            DialogResult choice = MessageBox.Show(
+                this,
+                msg,
+                "Доступно обновление StreloReminder",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Information);
+
+            if (choice == DialogResult.Yes)
+            {
+                if (!string.IsNullOrWhiteSpace(res.ExeDownloadUrl))
+                {
+                    _btnCheckUpdate.Text = "Загрузка...";
+                    Application.DoEvents();
+
+                    string err;
+                    if (UpdateService.DownloadAndInstallUpdate(res.ExeDownloadUrl, out err))
+                    {
+                        ExitApplication();
+                        return;
+                    }
+                    else
+                    {
+                        MessageBox.Show(
+                            err + "\n\nСейчас откроется страница загрузки релиза в браузере.",
+                            "Автообновление",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Warning);
+                    }
+                }
+
+                try
+                {
+                    Process.Start(res.ReleaseUrl);
+                }
+                catch
+                {
                 }
             }
         }
@@ -938,6 +1135,10 @@ namespace StreloReminder.Forms
         {
             if (_cloudConfig == null || !_cloudConfig.IsConfigured())
             {
+                if (forcePush)
+                {
+                    OnOpenCloudSyncSettingsClick(this, EventArgs.Empty);
+                }
                 return;
             }
             if (_isSyncInProgress)
@@ -999,7 +1200,6 @@ namespace StreloReminder.Forms
 
         private void ApplyMergedRemindersFromCloud(List<ReminderItem> mergedFromCloud)
         {
-            // Применяем обновлённый список с сохранением ссылки на открытые окна уведомлений
             bool dummyRemote;
             bool dummyLocal;
             List<ReminderItem> finalMerged = CloudSyncService.MergeReminders(
@@ -1014,7 +1214,6 @@ namespace StreloReminder.Forms
                 ReminderItem item = finalMerged[i];
                 if (_activePopups.ContainsKey(item.Id))
                 {
-                    // Если на телефоне напоминание уже выполнили, отложили или удалили — закрываем окно на ПК
                     if (item.IsDeleted || item.IsCompleted || !item.IsEnabled || item.TriggerTime > DateTime.Now.AddSeconds(5))
                     {
                         PopupNotificationForm popup = _activePopups[item.Id];
@@ -1404,7 +1603,7 @@ namespace StreloReminder.Forms
             _notifyIcon.Icon = icon;
             _notifyIcon.Text = _isDoNotDisturb
                 ? "Strelo — Напоминалка (Режим «Не беспокоить»)"
-                : "Strelo — Напоминалка для Windows";
+                : "Strelo — Напоминалка для Windows v" + UpdateService.CurrentVersion;
         }
 
         private void OnAutoStartChanged(object sender, EventArgs e)

@@ -1,13 +1,15 @@
 # Руководство для ИИ-агентов и разработчиков (AGENTS.md)
 
-Этот документ содержит полное описание архитектуры проекта **StreloReminder**, технических ограничений и обязательного регламента работы. Любой агент, продолжающий разработку в этом репозитории, **обязан** ознакомиться с этим файлом перед внесением изменений и строго следовать регламенту документирования и автосборки.
+Этот документ содержит полное описание архитектуры проекта **StreloReminder** (десктопного приложения Windows + мобильного приложения Android с двусторонней облачной синхронизацией), технических ограничений и обязательного регламента работы. Любой агент, продолжающий разработку в этом репозитории, **обязан** ознакомиться с этим файлом перед внесением изменений и строго следовать регламенту документирования и автосборки.
 
 ---
 
 ## 1. Обзор проекта
 
-**StreloReminder** — десктопная программа-напоминалка для ОС Windows 10/11 на языке **C# (Windows Forms)**.
-Основная задача приложения — позволять пользователю создавать разовые и повторяющиеся напоминания (по таймеру или на точное время), работать в фоновом режиме в системном трее (`NotifyIcon`) и в нужный момент выводить **всплывающее окно поверх всех окон (`TopMost = true`)** со звуковым сигналом и функциями «Отложить» (Snooze) / «Выполнено».
+**StreloReminder** — кроссплатформенная система напоминаний для **Windows 10/11 (C# WinForms)** и **Android 7.0+ (Java Android SDK)** с полной **двусторонней облачной синхронизацией через интернет**.
+- На **Windows** приложение работает в системном трее (`NotifyIcon`) и выводит всплывающее окно поверх всех окон (`TopMost = true`) со звуковым сигналом и кнопками откладывания.
+- На **Android** приложение планирует точные будильники через `AlarmManager`, выводит системные уведомления высокой важности (`IMPORTANCE_HIGH`) и полноэкранное всплывающее окно (`ReminderAlertActivity`) поверх блокировки экрана.
+- **Обмен данными между ПК и телефоном** происходит автоматически через облако (**GitHub Gist** или любой **Cloud JSON URL**) с разрешением конфликтов по метке времени `UpdatedAtUnixMs` и поддержкой мягкого удаления (`IsDeleted`). Для мгновенной связки компьютера и телефона используется единая строка подключения **`STRELO1:...`**.
 
 ---
 
@@ -17,21 +19,40 @@
 StreloReminder/
 ├── .github/
 │   └── workflows/
-│       └── build.yml               # CI/CD пайплайн GitHub Actions (автосборка Windows EXE + артефакты)
+│       └── build.yml               # CI/CD пайплайн GitHub Actions (автосборка Windows EXE + Android APK)
 ├── Forms/
-│   ├── MainForm.cs                 # Главное окно: форма создания/редактирования, таблица, таймер, трей
-│   └── PopupNotificationForm.cs    # Всплывающее окно уведомления поверх всех окон (TopMost + Snooze)
+│   ├── MainForm.cs                 # Главное окно Windows: редактор, таблица, таймер, трей, фоновая синхронизация
+│   ├── PopupNotificationForm.cs    # Всплывающее окно уведомления поверх всех окон (TopMost + Snooze)
+│   └── CloudSyncForm.cs            # Диалог настройки облачной синхронизации ПК ↔ Android (Gist / Cloud URL / код STRELO1)
 ├── Models/
-│   └── ReminderItem.cs             # Модель данных напоминания (DataContract), расчёт повторов и откладывания
+│   ├── ReminderItem.cs             # Модель данных напоминания (DataContract), UpdatedAtUnixMs, IsDeleted, расчёт повторов
+│   └── CloudSyncConfig.cs          # Конфигурация облака и генератор кода быстрого подключения STRELO1:...
 ├── Services/
 │   ├── IconGenerator.cs            # Программная отрисовка иконки колокольчика через System.Drawing (GDI+)
-│   └── StorageService.cs           # Сериализация в JSON (%APPDATA%\StreloReminder\reminders.json) и автозапуск в реестре
-├── Program.cs                      # Точка входа (Main), защита от повторного запуска через именованный Mutex
+│   ├── StorageService.cs           # Сериализация напоминаний и настроек облака в %APPDATA%\StreloReminder\
+│   └── CloudSyncService.cs         # Двусторонняя синхронизация и слияние (MergeReminders) через GitHub Gist / Cloud URL
+├── android/                        # Нативное мобильное приложение для Android (Java, minSdk 24, targetSdk 34)
+│   ├── settings.gradle, build.gradle, gradle.properties
+│   └── app/
+│       ├── build.gradle
+│       └── src/main/
+│           ├── AndroidManifest.xml
+│           ├── res/drawable/ic_bell.xml
+│           └── java/com/strelo/reminder/
+│               ├── MainActivity.java           # Главный экран Android: список, редактор 6 единиц времени, настройка облака
+│               ├── ReminderAlertActivity.java  # Всплывающее окно уведомления на Android (звук, вибрация, Snooze)
+│               ├── AlarmScheduler.java         # Планировщик точных будильников AlarmManager + NotificationChannel
+│               ├── ReminderAlarmReceiver.java  # BroadcastReceiver срабатывания будильников и BOOT_COMPLETED
+│               ├── ReminderItem.java           # Модель напоминания (100% совместимая по JSON с Windows ReminderItem.cs)
+│               ├── CloudSyncConfig.java        # Настройки облака и парсер кода STRELO1:...
+│               ├── CloudSyncService.java       # Двусторонняя синхронизация Android ↔ Облако ↔ ПК
+│               └── StorageService.java         # Хранение данных в SharedPreferences
+├── Program.cs                      # Точка входа Windows (Main), защита от повторного запуска через именованный Mutex
 ├── StreloReminder.csproj           # Проектный файл SDK-стиля (net8.0-windows, UseWindowsForms=true)
 ├── StreloReminder.sln              # Файл решения Visual Studio 2022
 ├── build.bat                       # Локальный скрипт сборки в 1 клик через встроенный в Windows csc.exe или dotnet
 ├── .gitattributes                  # Правила окончаний строк (CRLF для .bat, .sln, .cs, .csproj)
-├── .gitignore                      # Исключения Git (bin/, obj/, *.exe и т.д.)
+├── .gitignore                      # Исключения Git (bin/, obj/, *.exe, *.apk, android/build и т.д.)
 ├── AGENTS.md                       # Данное руководство для агентов
 ├── CHANGELOG.md                    # Подробный журнал всех изменений (обязателен к ведению)
 └── README.md                       # Пользовательская документация
@@ -39,59 +60,32 @@ StreloReminder/
 
 ### Детальное описание компонентов
 
-1. **`Models/ReminderItem.cs`**:
-   - Перечисления:
-     - `RecurrenceType`: `None` (0), `EveryMinutes` (1), `Daily` (2), `Weekdays` (3), `Weekly` (4).
-     - `ReminderPriority`: `Normal` (0), `High` (1).
-   - Класс `ReminderItem` размечен атрибутами `[DataContract]` и `[DataMember(Order = ...)]` для встроенного сериализатора `DataContractJsonSerializer`.
-   - Поле `TriggerTimeIso` хранит дату/время в формате `yyyy-MM-ddTHH:mm:ss` для 100% совместимости между `.NET Framework 4.x` и `.NET 8`.
-   - Свойство `IsPopupOpen` (`[IgnoreDataMember]`) предотвращает повторное открытие всплывающего окна, пока текущее окно уведомления уже открыто на экране.
-   - Метод `AdvanceAfterComplete(DateTime now)` переводит повторяющееся напоминание на следующую дату/интервал либо помечает разовое напоминание как выполненное (`IsCompleted = true`, `IsEnabled = false`).
-   - Статический метод `CalculateCalendarDiff(DateTime from, DateTime to, out int years, out int months, out int days, out int hours, out int minutes, out int seconds)` вычисляет точную календарную разницу (годы, месяцы, дни, часы, минуты, секунды) для отображения обратного отсчёта и заполнения полей редактора.
-   - Методы `Snooze(int minutes)` и `SnoozeByOffset(int years, int months, int days, int hours, int minutes, int seconds)` откладывают срабатывание от текущего момента.
+1. **`Models/ReminderItem.cs` (Windows) и `ReminderItem.java` (Android)**:
+   - Схема JSON полностью идентична между платформами:
+     `Id`, `Title`, `Notes`, `TriggerTimeIso`, `RecurrenceValue`, `IntervalMinutes`, `PriorityValue`, `IsEnabled`, `IsCompleted`, `PlaySound`, `UpdatedAtUnixMs`, `IsDeleted`.
+   - При любом изменении вызывается `Touch()` / `touch()`, обновляющий `UpdatedAtUnixMs` (UTC миллисекунды Unix).
+   - При удалении напоминания выставляется `IsDeleted = true` (tombstone), чтобы удаление корректно передалось на второе устройство при синхронизации.
+   - Методы `CalculateCalendarDiff`, `AdvanceAfterComplete` и `SnoozeByOffset(years, months, days, hours, minutes, seconds)` реализованы идентично на C# и Java.
 
-2. **`Services/StorageService.cs`**:
-   - Сохраняет и загружает список `List<ReminderItem>` в файл `%APPDATA%\StreloReminder\reminders.json` с помощью `DataContractJsonSerializer`.
-   - Управляет автозапуском программы при входе в Windows через ветку реестра `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (ключ `StreloReminder`, аргумент запуска `--minimized`).
-
-3. **`Services/IconGenerator.cs`**:
-   - Генерирует иконку `System.Drawing.Icon` размером `32x32` программно (синий круг с белым колокольчиком для обычного режима и серый — для режима «Не беспокоить»).
-   - Освобождает GDI-дескриптор через Win32 `DestroyIcon` после клонирования и кэширует иконки в статических полях.
-
-4. **`Forms/PopupNotificationForm.cs`**:
-   - Окно уведомления, создаваемое при наступлении времени напоминания.
-   - Использует `TopMost = true`, Win32 `SetWindowPos(..., HWND_TOPMOST, ...)` и `FlashWindow` для гарантированного привлечения внимания поверх любых окон.
-   - Проигрывает системный звук (`SystemSounds.Asterisk` или `SystemSounds.Exclamation`) при открытии и каждые 15 секунд до реакции пользователя.
-   - Предоставляет быстрые кнопки откладывания (`+30 сек`, `+5 мин`, `+15 мин`, `+1 час`, `+1 день`), а также ввод произвольного значения с выбором единицы измерения (`сек.`, `мин.`, `ч.`, `дн.`, `мес.`, `лет`) и кнопку «Понятно (Выполнено)».
-   - При закрытии окна крестиком автоматически откладывает напоминание на 5 минут, чтобы пользователь случайно не потерял задачу.
-
-5. **`Forms/MainForm.cs`**:
-   - Главное окно приложения.
-   - Панель «Через сколько» (`_pnlTimerControls`) содержит 6 числовых полей (`Годы`, `Месяцы`, `Дни`, `Часы`, `Минуты`, `Секунды`), быстрые кнопки-пресеты (`30 сек`, `5 мин`, `15 мин`, `1 час`, `1 день`, `1 мес`, `1 год`, `Сброс`) и живой индикатор расчётного времени срабатывания (`_lblTimerPreview`).
-   - Содержит таймер `_mainTimer` с интервалом `1000 мс`, который обновляет часы в шапке, превью таймера, проверяет наступление времени напоминаний и обновляет колонку «Осталось» в `ListView`.
-   - Поддерживает сворачивание в системный трей (`NotifyIcon`) при нажатии на крестик окна. Полный выход выполняется через пункт «Выход из программы» в контекстном меню трея.
-
-6. **`Program.cs`**:
-   - Точка входа с `[STAThread]`.
-   - Проверяет уникальность экземпляра через `Mutex` (`Global\StreloReminder_SingleInstance_Mutex`).
-   - Поддерживает аргумент командной строки `--minimized` / `-m` для тихого старта в системный трей при автозагрузке Windows.
+2. **`Models/CloudSyncConfig.cs` и `Services/CloudSyncService.cs` (и аналоги на Android)**:
+   - Поддерживают два облачных провайдера:
+     - `GitHubGist` (`1`): хранит JSON в секретном Gist в файле `strelo_reminders.json` через GitHub REST API (`POST / GET / PATCH https://api.github.com/gists`).
+     - `CustomJsonUrl` (`2`): хранит JSON по любому HTTPS URL через `GET` / `PUT`.
+   - Алгоритм `MergeReminders`: сопоставляет локальный и облачный списки по `Id`. Для каждого `Id` выбирается запись с большим `UpdatedAtUnixMs`.
+   - Метод `ToConnectionCode()` кодирует конфигурацию облака в строку `STRELO1:<Base64(JSON)>`, которую можно скопировать в буфер обмена и вставить на другом устройстве одной кнопкой.
 
 ---
 
 ## 3. Технические правила и ограничения (ВАЖНО!)
 
-Проект намеренно поддерживает **двойную совместимость компиляции**:
-1. **Сборка через современный .NET 8 SDK** (`dotnet build` / `dotnet publish` по файлу `StreloReminder.csproj`).
-2. **Сборка через встроенный в Windows 10/11 компилятор `.NET Framework 4.x`** (`C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe`), который позволяет собирать автономный `StreloReminder.exe` (~30 КБ) без установки каких-либо SDK.
-
-Чтобы обе сборки в GitHub Actions и `build.bat` всегда проходили успешно, соблюдайте следующие правила:
-- **Синтаксис C#**: используйте конструкции, совместимые с **C# 5.0** (не используйте строковую интерполяцию `$"..."` — вместо неё используйте `string.Format(...)`; не используйте оператор `?.`, `nameof(...)`, `out var` в одной строке и инициализаторы автосвойств).
-- **Внешние зависимости**: не добавляйте сторонние NuGet-пакеты без крайней необходимости — используйте стандартные сборки (`System`, `System.Core`, `System.Drawing`, `System.Windows.Forms`, `System.Runtime.Serialization`, `System.Xml`).
-- **Новые `.cs` файлы**: при добавлении нового `.cs` файла обязательно добавьте путь к нему:
-  1. В команду вызова `csc.exe` в файле `build.bat`.
-  2. В шаг `Build standalone .NET Framework EXE` в файле `.github/workflows/build.yml`.
-- **Кодировка файлов**: все `.cs` файлы должны быть сохранены в кодировке **UTF-8 с BOM (`EF BB BF`)** и окончаниями строк `CRLF`, чтобы кириллические строки корректно компилировались в любом окружении Windows.
-- **WinForms `Panel` + `AnchorStyles.Right`**: при добавлении дочерних элементов с `AnchorStyles.Right` внутрь контейнера (`Panel`, `GroupBox`), обязательно задавайте финальный `Size` контейнера **до** вызова `Controls.Add(...)`, иначе при последующей стыковке (`Dock`) элементы сместятся за пределы экрана.
+1. **Двойная совместимость C# на Windows**:
+   - Код Windows-приложения компилируется как через **.NET 8 SDK**, так и через встроенный в Windows 10/11 компилятор **`.NET Framework 4.x` (`csc.exe`)**.
+   - Используйте синтаксис, совместимый с **C# 5.0** (без `$"..."`, `?.`, `nameof`, `out var`).
+   - При добавлении нового `.cs` файла обязательно добавляйте его в `build.bat` и в шаг `Build standalone .NET Framework EXE` в `.github/workflows/build.yml`.
+   - Все `.cs` файлы должны быть сохранены в кодировке **UTF-8 с BOM (`EF BB BF`)** и окончаниями строк `CRLF`.
+   - При добавлении дочерних элементов с `AnchorStyles.Right` внутрь контейнера (`Panel`, `GroupBox`) задавайте финальный `Size` контейнера **до** вызова `Controls.Add(...)`.
+2. **Совместимость JSON-протокола Windows ↔ Android**:
+   - Любое новое поле в `ReminderItem` или `CloudSyncConfig` должно одновременно добавляться и в C#-классы (`Models/`), и в Java-классы (`android/app/src/main/java/com/strelo/reminder/`).
 
 ---
 
@@ -108,5 +102,5 @@ StreloReminder/
    - Перед коммитом синхронизировать указатель ветки с удалённым репозиторием: `git fetch origin && git reset --soft origin/<текущая-ветка>`.
    - Выполнить `git add -A && git commit -m "..."` и отправить изменения в текущую рабочую ветку (`git push origin <текущая-ветка>`).
 4. **Проконтролировать выполнение GitHub Actions**:
-   - Дождаться запуска workflow `Windows Build & Artifacts` через `gh run list --branch <текущая-ветка>` и проверить его успешное завершение (`gh run watch <run-id>` или `gh run view <run-id>`).
-   - Если сборка на `windows-latest` завершилась с ошибкой — изучить лог через `gh run view <run-id> --log-failed`, исправить ошибку, задокументировать исправление и повторно запустить сборку до получения статуса `completed / success`.
+   - Дождаться запуска workflow `Windows & Android Build & Artifacts` через `gh run list --branch <текущая-ветка>` и проверить успешное завершение обоих джобов (`build-windows` и `build-android`) через `gh run watch <run-id> --exit-status`.
+   - Если любая из сборок завершилась с ошибкой — изучить лог через `gh run view <run-id> --log-failed`, исправить ошибку, задокументировать исправление и повторно запустить сборку до получения статуса `completed / success`.

@@ -30,9 +30,12 @@ if defined CSC (
         /r:System.Xml.dll ^
         Program.cs ^
         Models\ReminderItem.cs ^
+        Models\CloudSyncConfig.cs ^
         Services\StorageService.cs ^
+        Services\CloudSyncService.cs ^
         Services\IconGenerator.cs ^
         Forms\PopupNotificationForm.cs ^
+        Forms\CloudSyncForm.cs ^
         Forms\MainForm.cs
 
     if errorlevel 1 (

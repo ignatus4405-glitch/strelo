@@ -4,6 +4,45 @@
 
 ---
 
+## [2026-10-14] — Разработка мобильного приложения Android и двусторонней облачной синхронизации (ПК Windows ↔ Android)
+
+### Что сделано
+1. **Модель двусторонней синхронизации без потери данных (`Models/ReminderItem.cs` и `android/.../ReminderItem.java`)**:
+   - В модель напоминания добавлены поля `UpdatedAtUnixMs` (`Order = 11`, время последнего изменения в миллисекундах UTC) и `IsDeleted` (`Order = 12`, флаг мягкого удаления / tombstone).
+   - Формат JSON-объекта `ReminderItem` на 100% идентичен между Windows (`.NET DataContractJsonSerializer`) и Android (`org.json.JSONObject`), что позволяет напрямую обмениваться списком напоминаний через облако.
+   - При слиянии списков (`MergeReminders`) для каждого `Id` побеждает запись с более новым `UpdatedAtUnixMs`, а новые записи с любого устройства автоматически добавляются на второе устройство.
+2. **Облачная синхронизация на Windows (`Models/CloudSyncConfig.cs`, `Services/CloudSyncService.cs`, `Forms/CloudSyncForm.cs`, `Forms/MainForm.cs`)**:
+   - Поддержаны два облачных режима:
+     1. **GitHub Gist** (`https://api.github.com/gists`) — бесплатное секретное облачное хранилище. В окно настроек добавлена кнопка **«Создать новое облако Gist»**, которая в один клик создаёт Gist и сохраняет его ID.
+     2. **Прямой облачный JSON URL** (`GET` / `PUT`, например Firebase Realtime Database или собственный REST-эндпоинт).
+   - Реализован **Код быстрого подключения (`STRELO1:...`)**: пользователь может нажать «Скопировать код для телефона» на ПК и вставить его одной кнопкой в Android-приложении (или наоборот).
+   - В шапку главного окна Windows добавлены кнопки **«Синхр.»** и **«Облако (Android)»**, индикатор статуса синхронизации, а также фоновая автосинхронизация в пуле потоков (`ThreadPool`) каждые `N` секунд и мгновенная отправка изменений при создании, редактировании, откладывании, выполнении или удалении напоминания.
+   - Если напоминание выполнено или отложено на телефоне, открытое всплывающее окно на ПК автоматически закрывается при следующей синхронизации.
+3. **Нативное мобильное приложение для Android (`android/`)**:
+   - Создан полноценный Android-проект (`com.strelo.reminder`, `minSdk 24`, `targetSdk 34`) со следующими компонентами:
+     - **`MainActivity.java`** — главный экран с живыми часами, статусом облака, кнопками `Синхр.`, `Облако (ПК)`, переключателем `Пауза`, списком карточек напоминаний с посекундным обратным отсчётом и диалогом создания/редактирования напоминаний (включая выбор **Годы, Месяцы, Дни, Часы, Минуты, Секунды** + пресеты + точная дата и время).
+     - **`ReminderAlertActivity.java`** — всплывающее полноэкранное окно уведомления поверх блокировки экрана со звуком, вибрацией, быстрыми кнопками откладывания (`+30 сек`, `+5 мин`, `+15 мин`, `+1 час`, `+1 день`), произвольным выбором (`сек.`, `мин.`, `ч.`, `дн.`, `мес.`, `лет`) и кнопкой «Понятно (Выполнено)».
+     - **`AlarmScheduler.java` и `ReminderAlarmReceiver.java`** — планировщик точных будильников `AlarmManager` (`setExactAndAllowWhileIdle`), канал уведомлений высокой важности (`IMPORTANCE_HIGH`) и восстановление расписания после перезагрузки телефона (`BOOT_COMPLETED`).
+     - **`CloudSyncConfig.java`, `CloudSyncService.java`, `StorageService.java`** — локальное хранение и двусторонняя облачная синхронизация с ПК.
+4. **Автосборка Android APK и Windows EXE в GitHub Actions (`.github/workflows/build.yml`)**:
+   - В пайплайн добавлен параллельный джоб `build-android`, который собирает подписанный установочный файл **`StreloReminder-Android.apk`** и публикует его в артефакт **`StreloReminder-Android-APK`** вместе с Windows-сборками.
+
+### Затронутые файлы
+- `Models/ReminderItem.cs` (обновлён)
+- `Models/CloudSyncConfig.cs` (создан)
+- `Services/StorageService.cs` (обновлён)
+- `Services/CloudSyncService.cs` (создан)
+- `Forms/CloudSyncForm.cs` (создан)
+- `Forms/MainForm.cs` (обновлён)
+- `build.bat` (обновлён)
+- `android/settings.gradle`, `android/build.gradle`, `android/gradle.properties`, `android/app/build.gradle` (созданы)
+- `android/app/src/main/AndroidManifest.xml`, `android/app/src/main/res/drawable/ic_bell.xml` (созданы)
+- `android/app/src/main/java/com/strelo/reminder/*.java` (8 классов созданы)
+- `.github/workflows/build.yml` (обновлён)
+- `.gitignore`, `AGENTS.md`, `README.md`, `CHANGELOG.md` (обновлены)
+
+---
+
 ## [2026-10-14] — Увеличение размера главного окна для полного отображения заголовка списка напоминаний и шапки
 
 ### Что сделано

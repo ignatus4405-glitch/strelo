@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Threading;
 using System.Windows.Forms;
 using StreloReminder.Models;
 using StreloReminder.Services;
@@ -13,13 +14,16 @@ namespace StreloReminder.Forms
         private readonly List<ReminderItem> _reminders = new List<ReminderItem>();
         private readonly Dictionary<string, PopupNotificationForm> _activePopups = new Dictionary<string, PopupNotificationForm>();
 
-        private Timer _mainTimer;
+        private System.Windows.Forms.Timer _mainTimer;
         private NotifyIcon _notifyIcon;
         private ContextMenuStrip _trayMenu;
         private ToolStripMenuItem _trayPauseItem;
 
         // Элементы шапки
         private Label _lblClock;
+        private Label _lblSyncStatus;
+        private Button _btnSyncNow;
+        private Button _btnCloudSettings;
         private CheckBox _chkDoNotDisturb;
         private CheckBox _chkAutoStart;
 
@@ -58,7 +62,10 @@ namespace StreloReminder.Forms
         private ListView _lvReminders;
         private Label _lblSummary;
 
-        // Состояние
+        // Состояние и облачная синхронизация
+        private CloudSyncConfig _cloudConfig;
+        private bool _isSyncInProgress;
+        private int _secondsSinceLastSync;
         private string _editingReminderId;
         private bool _isExiting;
         private bool _isDoNotDisturb;
@@ -68,16 +75,23 @@ namespace StreloReminder.Forms
         public MainForm(bool startMinimized = false)
         {
             _startMinimized = startMinimized;
+            _cloudConfig = StorageService.LoadCloudConfig();
             InitializeComponent();
             InitializeTrayIcon();
             LoadSavedReminders();
+            UpdateCloudStatusUI();
             UpdateTimerPreviewLabel();
             StartScheduler();
+
+            if (_cloudConfig.IsConfigured())
+            {
+                TriggerBackgroundCloudSync(false);
+            }
         }
 
         private void InitializeComponent()
         {
-            Text = "Strelo — Напоминалка для Windows";
+            Text = "Strelo — Напоминалка для Windows (Синхронизация с Android)";
             Icon = IconGenerator.GetAppIcon(false);
             ClientSize = new Size(1060, 700);
             MinimumSize = new Size(1076, 738);
@@ -114,6 +128,45 @@ namespace StreloReminder.Forms
                 Location = new Point(20, 35)
             };
 
+            _btnSyncNow = new Button
+            {
+                Text = "Синхр.",
+                Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
+                Location = new Point(275, 8),
+                Size = new Size(76, 25),
+                Padding = new Padding(0),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(37, 99, 235),
+                ForeColor = Color.White,
+                Cursor = Cursors.Hand
+            };
+            _btnSyncNow.FlatAppearance.BorderColor = Color.FromArgb(96, 165, 250);
+            _btnSyncNow.Click += delegate { TriggerBackgroundCloudSync(true); };
+
+            _btnCloudSettings = new Button
+            {
+                Text = "Облако (Android)",
+                Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
+                Location = new Point(357, 8),
+                Size = new Size(145, 25),
+                Padding = new Padding(0),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(37, 99, 235),
+                ForeColor = Color.White,
+                Cursor = Cursors.Hand
+            };
+            _btnCloudSettings.FlatAppearance.BorderColor = Color.FromArgb(96, 165, 250);
+            _btnCloudSettings.Click += OnOpenCloudSyncSettingsClick;
+
+            _lblSyncStatus = new Label
+            {
+                Text = "Облако: не настроено",
+                ForeColor = Color.FromArgb(191, 219, 254),
+                Font = new Font("Segoe UI", 8.25f, FontStyle.Regular),
+                AutoSize = true,
+                Location = new Point(275, 36)
+            };
+
             _chkDoNotDisturb = new CheckBox
             {
                 Text = "Режим «Не беспокоить» (пауза)",
@@ -143,6 +196,9 @@ namespace StreloReminder.Forms
 
             headerPanel.Controls.Add(lblAppTitle);
             headerPanel.Controls.Add(_lblClock);
+            headerPanel.Controls.Add(_btnSyncNow);
+            headerPanel.Controls.Add(_btnCloudSettings);
+            headerPanel.Controls.Add(_lblSyncStatus);
             headerPanel.Controls.Add(_chkDoNotDisturb);
             headerPanel.Controls.Add(_chkAutoStart);
 
@@ -240,11 +296,9 @@ namespace StreloReminder.Forms
             _numTimerMinutes = CreateTimerUnitControl(_pnlTimerControls, "Минуты", 338, 0, 999, 15);
             _numTimerSeconds = CreateTimerUnitControl(_pnlTimerControls, "Секунды", 420, 0, 999, 0);
 
-            // Быстрые кнопки установки интервала (сек, мин, ч, день, мес, год, сброс)
             string[] presetLabels = new string[] { "30 сек", "5 мин", "15 мин", "1 час", "1 день", "1 мес", "1 год", "Сброс" };
             int[,] presetOffsets = new int[,]
             {
-                // years, months, days, hours, minutes, seconds
                 { 0, 0, 0, 0, 0, 30 },
                 { 0, 0, 0, 0, 5, 0 },
                 { 0, 0, 0, 0, 15, 0 },
@@ -546,8 +600,6 @@ namespace StreloReminder.Forms
             _grpEditor.Controls.Add(btnMinimizeToTray);
 
             // 3. ПАНЕЛЬ УПРАВЛЕНИЯ СПИСКОМ НАПОМИНАНИЙ
-            // _lblSummary имеет AutoSize = true, а окно имеет достаточную ширину (1060px),
-            // чтобы текст «Список напоминаний (Всего: X, Активных: Y)» всегда отображался целиком без обрезания
             Panel listToolbar = new Panel
             {
                 Location = new Point(16, 340),
@@ -738,6 +790,9 @@ namespace StreloReminder.Forms
             openItem.Font = new Font(openItem.Font, FontStyle.Bold);
             openItem.Click += delegate { RestoreFromTray(); };
 
+            ToolStripMenuItem syncNowItem = new ToolStripMenuItem("Синхронизировать с Android сейчас");
+            syncNowItem.Click += delegate { TriggerBackgroundCloudSync(true); };
+
             ToolStripMenuItem quick5Item = new ToolStripMenuItem("Быстрое напоминание через 5 мин");
             quick5Item.Click += delegate { CreateQuickReminder(5); };
 
@@ -758,6 +813,7 @@ namespace StreloReminder.Forms
             exitItem.Click += delegate { ExitApplication(); };
 
             _trayMenu.Items.Add(openItem);
+            _trayMenu.Items.Add(syncNowItem);
             _trayMenu.Items.Add(new ToolStripSeparator());
             _trayMenu.Items.Add(quick5Item);
             _trayMenu.Items.Add(quick15Item);
@@ -787,7 +843,7 @@ namespace StreloReminder.Forms
 
         private void StartScheduler()
         {
-            _mainTimer = new Timer
+            _mainTimer = new System.Windows.Forms.Timer
             {
                 Interval = 1000
             };
@@ -820,7 +876,7 @@ namespace StreloReminder.Forms
                 for (int i = 0; i < _reminders.Count; i++)
                 {
                     ReminderItem item = _reminders[i];
-                    if (item.IsEnabled && !item.IsCompleted && !item.IsPopupOpen && item.TriggerTime <= now)
+                    if (!item.IsDeleted && item.IsEnabled && !item.IsCompleted && !item.IsPopupOpen && item.TriggerTime <= now)
                     {
                         ShowPopupForReminder(item);
                     }
@@ -828,6 +884,173 @@ namespace StreloReminder.Forms
             }
 
             UpdateListViewCountdowns(now);
+
+            // Фоновая автосинхронизация с облаком (Android <-> ПК)
+            if (_cloudConfig != null && _cloudConfig.IsConfigured() && !_isSyncInProgress)
+            {
+                _secondsSinceLastSync++;
+                int interval = Math.Max(10, _cloudConfig.AutoSyncIntervalSeconds);
+                if (_secondsSinceLastSync >= interval)
+                {
+                    _secondsSinceLastSync = 0;
+                    TriggerBackgroundCloudSync(false);
+                }
+            }
+        }
+
+        private void UpdateCloudStatusUI()
+        {
+            if (_cloudConfig == null || !_cloudConfig.IsConfigured())
+            {
+                _lblSyncStatus.Text = "Облако: не настроено";
+                _lblSyncStatus.ForeColor = Color.FromArgb(191, 219, 254);
+            }
+            else
+            {
+                string mode = _cloudConfig.ProviderType == CloudProviderType.GitHubGist ? "GitHub Gist" : "Cloud URL";
+                _lblSyncStatus.Text = "Облако активно (" + mode + ")";
+                _lblSyncStatus.ForeColor = Color.FromArgb(167, 243, 208);
+            }
+        }
+
+        private void OnOpenCloudSyncSettingsClick(object sender, EventArgs e)
+        {
+            List<ReminderItem> snapshot = CloneRemindersList(_reminders);
+            using (CloudSyncForm dlg = new CloudSyncForm(_cloudConfig, snapshot))
+            {
+                DialogResult res = dlg.ShowDialog(this);
+                if (dlg.SyncTriggeredSuccessfully && dlg.SyncedReminders != null)
+                {
+                    ApplyMergedRemindersFromCloud(dlg.SyncedReminders);
+                }
+                else if (res == DialogResult.OK)
+                {
+                    UpdateCloudStatusUI();
+                    if (_cloudConfig.IsConfigured())
+                    {
+                        TriggerBackgroundCloudSync(true);
+                    }
+                }
+            }
+        }
+
+        private void TriggerBackgroundCloudSync(bool forcePush)
+        {
+            if (_cloudConfig == null || !_cloudConfig.IsConfigured())
+            {
+                return;
+            }
+            if (_isSyncInProgress)
+            {
+                return;
+            }
+
+            _isSyncInProgress = true;
+            _secondsSinceLastSync = 0;
+            _lblSyncStatus.Text = "Синхронизация с облаком...";
+
+            List<ReminderItem> snapshot = CloneRemindersList(_reminders);
+            CloudSyncConfig configSnapshot = new CloudSyncConfig
+            {
+                ProviderType = _cloudConfig.ProviderType,
+                GitHubToken = _cloudConfig.GitHubToken,
+                GistId = _cloudConfig.GistId,
+                CustomCloudUrl = _cloudConfig.CustomCloudUrl,
+                AutoSyncIntervalSeconds = _cloudConfig.AutoSyncIntervalSeconds
+            };
+
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                CloudSyncResult syncRes = CloudSyncService.Synchronize(configSnapshot, snapshot, forcePush);
+                try
+                {
+                    if (!IsDisposed && IsHandleCreated)
+                    {
+                        BeginInvoke((MethodInvoker)delegate
+                        {
+                            _isSyncInProgress = false;
+                            if (syncRes.Success)
+                            {
+                                _lblSyncStatus.Text = syncRes.Message;
+                                _lblSyncStatus.ForeColor = Color.FromArgb(167, 243, 208);
+                                if (syncRes.LocalListUpdated && syncRes.MergedReminders != null)
+                                {
+                                    ApplyMergedRemindersFromCloud(syncRes.MergedReminders);
+                                }
+                            }
+                            else
+                            {
+                                _lblSyncStatus.Text = syncRes.Message;
+                                _lblSyncStatus.ForeColor = Color.FromArgb(254, 202, 202);
+                            }
+                        });
+                    }
+                    else
+                    {
+                        _isSyncInProgress = false;
+                    }
+                }
+                catch
+                {
+                    _isSyncInProgress = false;
+                }
+            });
+        }
+
+        private void ApplyMergedRemindersFromCloud(List<ReminderItem> mergedFromCloud)
+        {
+            // Применяем обновлённый список с сохранением ссылки на открытые окна уведомлений
+            bool dummyRemote;
+            bool dummyLocal;
+            List<ReminderItem> finalMerged = CloudSyncService.MergeReminders(
+                _reminders,
+                mergedFromCloud,
+                out dummyRemote,
+                out dummyLocal);
+
+            _reminders.Clear();
+            for (int i = 0; i < finalMerged.Count; i++)
+            {
+                ReminderItem item = finalMerged[i];
+                if (_activePopups.ContainsKey(item.Id))
+                {
+                    // Если на телефоне напоминание уже выполнили, отложили или удалили — закрываем окно на ПК
+                    if (item.IsDeleted || item.IsCompleted || !item.IsEnabled || item.TriggerTime > DateTime.Now.AddSeconds(5))
+                    {
+                        PopupNotificationForm popup = _activePopups[item.Id];
+                        _activePopups.Remove(item.Id);
+                        item.IsPopupOpen = false;
+                        try
+                        {
+                            popup.Close();
+                        }
+                        catch
+                        {
+                        }
+                    }
+                    else
+                    {
+                        item.IsPopupOpen = true;
+                    }
+                }
+                _reminders.Add(item);
+            }
+
+            StorageService.SaveReminders(_reminders);
+            RefreshListView();
+        }
+
+        private static List<ReminderItem> CloneRemindersList(List<ReminderItem> source)
+        {
+            List<ReminderItem> copy = new List<ReminderItem>(source.Count);
+            for (int i = 0; i < source.Count; i++)
+            {
+                if (source[i] != null)
+                {
+                    copy.Add(source[i].Clone());
+                }
+            }
+            return copy;
         }
 
         private void ShowPopupForReminder(ReminderItem item)
@@ -853,6 +1076,7 @@ namespace StreloReminder.Forms
 
             StorageService.SaveReminders(_reminders);
             RefreshListView();
+            TriggerBackgroundCloudSync(true);
         }
 
         private void OnTimeModeChanged(object sender, EventArgs e)
@@ -934,6 +1158,8 @@ namespace StreloReminder.Forms
             target.PlaySound = _chkPlaySound.Checked;
             target.IsEnabled = true;
             target.IsCompleted = false;
+            target.IsDeleted = false;
+            target.Touch();
 
             if (isNew)
             {
@@ -943,6 +1169,7 @@ namespace StreloReminder.Forms
             StorageService.SaveReminders(_reminders);
             ResetEditor();
             RefreshListView();
+            TriggerBackgroundCloudSync(true);
         }
 
         private void ResetEditor()
@@ -997,10 +1224,12 @@ namespace StreloReminder.Forms
                 PlaySound = true,
                 IsEnabled = true
             };
+            quick.Touch();
 
             _reminders.Add(quick);
             StorageService.SaveReminders(_reminders);
             RefreshListView();
+            TriggerBackgroundCloudSync(true);
 
             _notifyIcon.ShowBalloonTip(
                 2500,
@@ -1025,7 +1254,7 @@ namespace StreloReminder.Forms
 
             for (int i = 0; i < _reminders.Count; i++)
             {
-                if (_reminders[i].Id == id)
+                if (_reminders[i].Id == id && !_reminders[i].IsDeleted)
                     return _reminders[i];
             }
             return null;
@@ -1083,9 +1312,11 @@ namespace StreloReminder.Forms
             {
                 item.IsEnabled = !item.IsEnabled;
             }
+            item.Touch();
 
             StorageService.SaveReminders(_reminders);
             RefreshListView();
+            TriggerBackgroundCloudSync(true);
         }
 
         private void OnSnooze10SelectedClick(object sender, EventArgs e)
@@ -1096,6 +1327,7 @@ namespace StreloReminder.Forms
             item.Snooze(10);
             StorageService.SaveReminders(_reminders);
             RefreshListView();
+            TriggerBackgroundCloudSync(true);
         }
 
         private void OnDeleteSelectedClick(object sender, EventArgs e)
@@ -1111,23 +1343,40 @@ namespace StreloReminder.Forms
 
             if (res == DialogResult.Yes)
             {
-                _reminders.Remove(item);
+                item.IsDeleted = true;
+                item.IsEnabled = false;
+                item.Touch();
+
                 if (_editingReminderId == item.Id)
                 {
                     ResetEditor();
                 }
                 StorageService.SaveReminders(_reminders);
                 RefreshListView();
+                TriggerBackgroundCloudSync(true);
             }
         }
 
         private void OnClearCompletedClick(object sender, EventArgs e)
         {
-            int removed = _reminders.RemoveAll(delegate(ReminderItem r) { return r.IsCompleted; });
-            if (removed > 0)
+            int count = 0;
+            for (int i = 0; i < _reminders.Count; i++)
+            {
+                ReminderItem r = _reminders[i];
+                if (!r.IsDeleted && r.IsCompleted)
+                {
+                    r.IsDeleted = true;
+                    r.IsEnabled = false;
+                    r.Touch();
+                    count++;
+                }
+            }
+
+            if (count > 0)
             {
                 StorageService.SaveReminders(_reminders);
                 RefreshListView();
+                TriggerBackgroundCloudSync(true);
             }
         }
 
@@ -1177,11 +1426,16 @@ namespace StreloReminder.Forms
             _lvReminders.Items.Clear();
 
             DateTime now = DateTime.Now;
+            int totalVisible = 0;
             int activeCount = 0;
 
             for (int i = 0; i < _reminders.Count; i++)
             {
                 ReminderItem r = _reminders[i];
+                if (r.IsDeleted)
+                    continue;
+
+                totalVisible++;
                 if (r.IsEnabled && !r.IsCompleted)
                 {
                     activeCount++;
@@ -1209,7 +1463,7 @@ namespace StreloReminder.Forms
             _lvReminders.EndUpdate();
 
             _lblSummary.Text = string.Format("Список напоминаний (Всего: {0}, Активных: {1})",
-                _reminders.Count, activeCount);
+                totalVisible, activeCount);
         }
 
         private void UpdateListViewCountdowns(DateTime now)
@@ -1280,8 +1534,8 @@ namespace StreloReminder.Forms
 
         private static int CompareReminders(ReminderItem a, ReminderItem b)
         {
-            bool aActive = a.IsEnabled && !a.IsCompleted;
-            bool bActive = b.IsEnabled && !b.IsCompleted;
+            bool aActive = !a.IsDeleted && a.IsEnabled && !a.IsCompleted;
+            bool bActive = !b.IsDeleted && b.IsEnabled && !b.IsCompleted;
             if (aActive != bActive)
             {
                 return aActive ? -1 : 1;

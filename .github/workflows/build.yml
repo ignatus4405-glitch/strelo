@@ -1,4 +1,4 @@
-name: Windows Build & Artifacts
+name: Windows & Android Build & Artifacts
 
 on:
   push:
@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   build-windows:
-    name: Build StreloReminder (Windows)
+    name: Build StreloReminder (Windows EXE)
     runs-on: windows-latest
 
     steps:
@@ -44,9 +44,12 @@ jobs:
             /r:System.Xml.dll `
             Program.cs `
             Models\ReminderItem.cs `
+            Models\CloudSyncConfig.cs `
             Services\StorageService.cs `
+            Services\CloudSyncService.cs `
             Services\IconGenerator.cs `
             Forms\PopupNotificationForm.cs `
+            Forms\CloudSyncForm.cs `
             Forms\MainForm.cs
           if ($LASTEXITCODE -ne 0) {
             throw "csc.exe compilation failed with exit code $LASTEXITCODE"
@@ -83,4 +86,38 @@ jobs:
         with:
           name: StreloReminder-Net8-WinX64
           path: artifacts/net8-win-x64/
+          if-no-files-found: error
+
+  build-android:
+    name: Build StreloReminder (Android APK)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.5'
+
+      - name: Build Android APK
+        working-directory: android
+        run: |
+          gradle assembleRelease --no-daemon
+          mkdir -p ../artifacts/android
+          cp app/build/outputs/apk/release/app-release.apk ../artifacts/android/StreloReminder-Android.apk
+          ls -lh ../artifacts/android/StreloReminder-Android.apk
+
+      - name: Upload Android APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: StreloReminder-Android-APK
+          path: artifacts/android/StreloReminder-Android.apk
           if-no-files-found: error

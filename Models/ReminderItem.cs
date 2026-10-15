@@ -21,6 +21,8 @@ namespace StreloReminder.Models
     [DataContract]
     public class ReminderItem
     {
+        private static readonly DateTime UnixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
         [DataMember(Order = 1)]
         public string Id { get; set; }
 
@@ -32,7 +34,7 @@ namespace StreloReminder.Models
 
         /// <summary>
         /// Храним дату/время в строковом ISO-формате для 100% совместимости сериализации
-        /// между .NET Framework и .NET 6/8.
+        /// между .NET Framework, .NET 8 и мобильным приложением Android.
         /// </summary>
         [DataMember(Order = 4)]
         public string TriggerTimeIso { get; set; }
@@ -56,6 +58,19 @@ namespace StreloReminder.Models
         public bool PlaySound { get; set; }
 
         /// <summary>
+        /// Время последнего изменения записи (Unix timestamp в миллисекундах UTC)
+        /// для двусторонней синхронизации между ПК и Android.
+        /// </summary>
+        [DataMember(Order = 11)]
+        public long UpdatedAtUnixMs { get; set; }
+
+        /// <summary>
+        /// Флаг мягкого удаления (tombstone) для корректной синхронизации удалений между ПК и телефоном.
+        /// </summary>
+        [DataMember(Order = 12)]
+        public bool IsDeleted { get; set; }
+
+        /// <summary>
         /// Флаг того, что прямо сейчас по этому напоминанию открыто всплывающее окно.
         /// Не сериализуется в файл.
         /// </summary>
@@ -74,7 +89,39 @@ namespace StreloReminder.Models
             IsEnabled = true;
             IsCompleted = false;
             PlaySound = true;
+            UpdatedAtUnixMs = GetCurrentUnixTimeMs();
+            IsDeleted = false;
             IsPopupOpen = false;
+        }
+
+        public static long GetCurrentUnixTimeMs()
+        {
+            return (long)(DateTime.UtcNow - UnixEpoch).TotalMilliseconds;
+        }
+
+        public void Touch()
+        {
+            UpdatedAtUnixMs = GetCurrentUnixTimeMs();
+        }
+
+        public ReminderItem Clone()
+        {
+            return new ReminderItem
+            {
+                Id = this.Id,
+                Title = this.Title,
+                Notes = this.Notes,
+                TriggerTimeIso = this.TriggerTimeIso,
+                RecurrenceValue = this.RecurrenceValue,
+                IntervalMinutes = this.IntervalMinutes,
+                PriorityValue = this.PriorityValue,
+                IsEnabled = this.IsEnabled,
+                IsCompleted = this.IsCompleted,
+                PlaySound = this.PlaySound,
+                UpdatedAtUnixMs = this.UpdatedAtUnixMs,
+                IsDeleted = this.IsDeleted,
+                IsPopupOpen = this.IsPopupOpen
+            };
         }
 
         [IgnoreDataMember]
@@ -230,6 +277,7 @@ namespace StreloReminder.Models
             {
                 IsCompleted = true;
                 IsEnabled = false;
+                Touch();
                 return;
             }
 
@@ -266,6 +314,7 @@ namespace StreloReminder.Models
             TriggerTime = next;
             IsCompleted = false;
             IsEnabled = true;
+            Touch();
         }
 
         /// <summary>
@@ -277,6 +326,7 @@ namespace StreloReminder.Models
             TriggerTime = DateTime.Now.AddMinutes(mins);
             IsCompleted = false;
             IsEnabled = true;
+            Touch();
         }
 
         /// <summary>
@@ -300,6 +350,7 @@ namespace StreloReminder.Models
             TriggerTime = target;
             IsCompleted = false;
             IsEnabled = true;
+            Touch();
         }
     }
 }

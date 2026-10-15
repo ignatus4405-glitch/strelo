@@ -9,6 +9,11 @@ namespace StreloReminder.Forms
 {
     public class CloudSyncForm : Form
     {
+        private static readonly int[] PresetSeconds = new int[]
+        {
+            5, 10, 15, 30, 60, 300, 900, 1800, 3600, 0
+        };
+
         private readonly CloudSyncConfig _config;
         private readonly List<ReminderItem> _currentReminders;
 
@@ -33,8 +38,13 @@ namespace StreloReminder.Forms
         private CheckBox _chkLanWifiEnabled;
         private Label _lblLanIpInfo;
 
+        // Выбор времени синхронизации между устройствами
+        private ComboBox _cmbSyncPreset;
+        private NumericUpDown _numSyncValue;
+        private ComboBox _cmbSyncUnit;
+        private bool _updatingSyncControls;
+
         // Привязка телефона + QR-код
-        private NumericUpDown _numSyncInterval;
         private TextBox _txtConnectionCode;
         private PictureBox _picQrCode;
         private Label _lblStatus;
@@ -58,14 +68,14 @@ namespace StreloReminder.Forms
             MaximizeBox = false;
             MinimizeBox = false;
             StartPosition = FormStartPosition.CenterParent;
-            ClientSize = new Size(720, 620);
+            ClientSize = new Size(780, 650);
             BackColor = Color.FromArgb(241, 245, 249);
             Font = new Font("Segoe UI", 9.25f, FontStyle.Regular);
 
             Panel headerPanel = new Panel
             {
                 Location = new Point(0, 0),
-                Size = new Size(720, 56),
+                Size = new Size(780, 56),
                 Dock = DockStyle.Top,
                 BackColor = Color.FromArgb(30, 58, 138)
             };
@@ -85,7 +95,7 @@ namespace StreloReminder.Forms
             {
                 Text = "Режим интернет-облака:",
                 Font = new Font("Segoe UI", 9f, FontStyle.Bold),
-                Location = new Point(18, 72),
+                Location = new Point(18, 70),
                 AutoSize = true
             };
 
@@ -93,8 +103,8 @@ namespace StreloReminder.Forms
             {
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
-                Location = new Point(210, 68),
-                Size = new Size(492, 26)
+                Location = new Point(210, 66),
+                Size = new Size(552, 26)
             };
             _cmbProvider.Items.AddRange(new object[]
             {
@@ -108,8 +118,8 @@ namespace StreloReminder.Forms
             // ПАНЕЛЬ 1: ОБЛАКО В 1 КЛИК (БЕЗ ТОКЕНОВ)
             _pnlOneClick = new Panel
             {
-                Location = new Point(18, 104),
-                Size = new Size(684, 142),
+                Location = new Point(18, 102),
+                Size = new Size(744, 140),
                 BackColor = Color.White,
                 BorderStyle = BorderStyle.FixedSingle,
                 Visible = false
@@ -128,8 +138,8 @@ namespace StreloReminder.Forms
             {
                 Text = "☁  Создать новое Облако в 1 клик (автоматически)",
                 Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
-                Location = new Point(14, 38),
-                Size = new Size(410, 36),
+                Location = new Point(14, 36),
+                Size = new Size(430, 36),
                 Padding = new Padding(0),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(37, 99, 235),
@@ -143,15 +153,15 @@ namespace StreloReminder.Forms
             {
                 Text = "ID облачной комнаты (создаётся автоматически или вводится с телефона):",
                 Font = new Font("Segoe UI", 8.75f, FontStyle.Regular),
-                Location = new Point(14, 82),
+                Location = new Point(14, 80),
                 AutoSize = true
             };
 
             _txtOneClickRoomId = new TextBox
             {
                 Font = new Font("Consolas", 9.75f, FontStyle.Bold),
-                Location = new Point(14, 104),
-                Size = new Size(654, 26)
+                Location = new Point(14, 102),
+                Size = new Size(714, 26)
             };
             _txtOneClickRoomId.TextChanged += delegate { UpdateConnectionCodeAndQrPreview(); };
 
@@ -163,8 +173,8 @@ namespace StreloReminder.Forms
             // ПАНЕЛЬ 2: GITHUB GIST
             _pnlGist = new Panel
             {
-                Location = new Point(18, 104),
-                Size = new Size(684, 142),
+                Location = new Point(18, 102),
+                Size = new Size(744, 140),
                 BackColor = Color.White,
                 BorderStyle = BorderStyle.FixedSingle,
                 Visible = false
@@ -182,7 +192,7 @@ namespace StreloReminder.Forms
             {
                 Font = new Font("Segoe UI", 9.5f),
                 Location = new Point(14, 32),
-                Size = new Size(654, 26),
+                Size = new Size(714, 26),
                 UseSystemPasswordChar = true
             };
             _txtGitHubToken.TextChanged += delegate { UpdateConnectionCodeAndQrPreview(); };
@@ -199,7 +209,7 @@ namespace StreloReminder.Forms
             {
                 Font = new Font("Segoe UI", 9.5f),
                 Location = new Point(14, 88),
-                Size = new Size(420, 26)
+                Size = new Size(470, 26)
             };
             _txtGistId.TextChanged += delegate { UpdateConnectionCodeAndQrPreview(); };
 
@@ -207,8 +217,8 @@ namespace StreloReminder.Forms
             {
                 Text = "Создать новое облако Gist",
                 Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
-                Location = new Point(444, 86),
-                Size = new Size(224, 30),
+                Location = new Point(494, 86),
+                Size = new Size(234, 30),
                 Padding = new Padding(0),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(219, 234, 254),
@@ -237,8 +247,8 @@ namespace StreloReminder.Forms
             // ПАНЕЛЬ 3: ПРЯМОЙ CLOUD JSON URL
             _pnlCustomUrl = new Panel
             {
-                Location = new Point(18, 104),
-                Size = new Size(684, 142),
+                Location = new Point(18, 102),
+                Size = new Size(744, 140),
                 BackColor = Color.White,
                 BorderStyle = BorderStyle.FixedSingle,
                 Visible = false
@@ -256,7 +266,7 @@ namespace StreloReminder.Forms
             {
                 Font = new Font("Segoe UI", 9.5f),
                 Location = new Point(14, 42),
-                Size = new Size(654, 26)
+                Size = new Size(714, 26)
             };
             _txtCustomUrl.TextChanged += delegate { UpdateConnectionCodeAndQrPreview(); };
 
@@ -266,22 +276,22 @@ namespace StreloReminder.Forms
                 Font = new Font("Segoe UI", 8.5f, FontStyle.Regular),
                 ForeColor = Color.FromArgb(100, 116, 139),
                 Location = new Point(14, 78),
-                Size = new Size(654, 46)
+                Size = new Size(714, 46)
             };
 
             _pnlCustomUrl.Controls.Add(lblUrl);
             _pnlCustomUrl.Controls.Add(_txtCustomUrl);
             _pnlCustomUrl.Controls.Add(lblUrlHint);
 
-            // 2. БЛОК ЛОКАЛЬНОЙ СИНХРОНИЗАЦИИ ПО WI-FI (LAN + АВТОПОИСК UDP)
+            // 2. БЛОК ЛОКАЛЬНОЙ СИНХРОНИЗАЦИИ ПО WI-FI (БЕЗ ОБРЕЗАНИЯ ТЕКСТА)
             GroupBox grpLan = new GroupBox
             {
                 Text = " 📡 Локальная синхронизация по домашнему Wi-Fi (с автопоиском ПК без внешних серверов) ",
                 Font = new Font("Segoe UI", 9f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(30, 41, 59),
                 BackColor = Color.White,
-                Location = new Point(18, 254),
-                Size = new Size(684, 82)
+                Location = new Point(18, 250),
+                Size = new Size(744, 96)
             };
 
             _chkLanWifiEnabled = new CheckBox
@@ -300,63 +310,107 @@ namespace StreloReminder.Forms
             _lblLanIpInfo = new Label
             {
                 Text = string.Format(
-                    "Адрес этого ПК в локальной сети: {0}:{1} (Автопоиск UDP порт {2}). В приложении на телефоне нажмите «Найти ПК в Wi-Fi».",
+                    "Адрес этого ПК в локальной сети: {0}:{1} (Автопоиск UDP порт {2}).\n" +
+                    "В приложении на телефоне нажмите кнопку «📡 Найти компьютер в сети Wi-Fi автоматически».",
                     primaryIp,
                     LanSyncService.DefaultHttpPort,
                     LanSyncService.DiscoveryUdpPort),
-                Font = new Font("Segoe UI", 8.5f, FontStyle.Regular),
+                Font = new Font("Segoe UI", 8.75f, FontStyle.Regular),
                 ForeColor = Color.FromArgb(71, 85, 105),
-                Location = new Point(14, 50),
-                AutoSize = true
+                Location = new Point(14, 48),
+                Size = new Size(714, 40),
+                AutoSize = false
             };
 
             grpLan.Controls.Add(_chkLanWifiEnabled);
             grpLan.Controls.Add(_lblLanIpInfo);
 
-            // 3. БЛОК ПРИВЯЗКИ ТЕЛЕФОНА ПО QR-КОДУ ИЛИ КОДУ ПОДКЛЮЧЕНИЯ
+            // 3. БЛОК ВЫБОРА ВРЕМЕНИ СИНХРОНИЗАЦИИ, ПРИВЯЗКИ И QR-КОДА
             GroupBox grpPairing = new GroupBox
             {
-                Text = " 📱 Привязка телефона Android по QR-коду или коду в 1 клик ",
+                Text = " 📱 Выбор времени синхронизации и привязка телефона Android по QR-коду ",
                 Font = new Font("Segoe UI", 9f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(30, 41, 59),
                 BackColor = Color.White,
-                Location = new Point(18, 344),
-                Size = new Size(684, 186)
+                Location = new Point(18, 354),
+                Size = new Size(744, 204)
             };
 
             Label lblInterval = new Label
             {
-                Text = "Интервал автосинхронизации (сек.):",
-                Font = new Font("Segoe UI", 8.75f, FontStyle.Regular),
-                Location = new Point(14, 26),
+                Text = "Время синхронизации между устройствами:",
+                Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+                ForeColor = Color.FromArgb(30, 41, 59),
+                Location = new Point(14, 24),
                 AutoSize = true
             };
 
-            _numSyncInterval = new NumericUpDown
+            _cmbSyncPreset = new ComboBox
             {
-                Minimum = 10,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+                Location = new Point(14, 46),
+                Size = new Size(276, 26)
+            };
+            _cmbSyncPreset.Items.AddRange(new object[]
+            {
+                "Каждые 5 секунд (мгновенно)",
+                "Каждые 10 секунд",
+                "Каждые 15 секунд (рекомендуется)",
+                "Каждые 30 секунд",
+                "Каждую 1 минуту",
+                "Каждые 5 минут",
+                "Каждые 15 минут",
+                "Каждые 30 минут",
+                "Каждый 1 час",
+                "Свой интервал..."
+            });
+            _cmbSyncPreset.SelectedIndexChanged += OnSyncPresetChanged;
+
+            Label lblCustomVal = new Label
+            {
+                Text = "или каждые:",
+                Font = new Font("Segoe UI", 8.75f, FontStyle.Regular),
+                Location = new Point(300, 50),
+                AutoSize = true
+            };
+
+            _numSyncValue = new NumericUpDown
+            {
+                Minimum = 1,
                 Maximum = 3600,
                 Value = 15,
                 Font = new Font("Segoe UI", 9f, FontStyle.Bold),
-                Location = new Point(238, 22),
-                Size = new Size(74, 24)
+                Location = new Point(382, 46),
+                Size = new Size(68, 26)
             };
-            _numSyncInterval.ValueChanged += delegate { UpdateConnectionCodeAndQrPreview(); };
+            _numSyncValue.ValueChanged += OnCustomSyncValueOrUnitChanged;
+
+            _cmbSyncUnit = new ComboBox
+            {
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Font = new Font("Segoe UI", 9f, FontStyle.Regular),
+                Location = new Point(456, 46),
+                Size = new Size(76, 26)
+            };
+            _cmbSyncUnit.Items.AddRange(new object[] { "сек.", "мин.", "ч." });
+            _cmbSyncUnit.SelectedIndex = 0;
+            _cmbSyncUnit.SelectedIndexChanged += OnCustomSyncValueOrUnitChanged;
 
             Label lblCodeHint = new Label
             {
                 Text = "Отсканируйте QR-код справа камерой телефона ИЛИ скопируйте код ниже:",
                 Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(30, 64, 175),
-                Location = new Point(14, 56),
+                Location = new Point(14, 82),
                 AutoSize = true
             };
 
             _txtConnectionCode = new TextBox
             {
                 Font = new Font("Consolas", 8.75f, FontStyle.Regular),
-                Location = new Point(14, 78),
-                Size = new Size(478, 24),
+                Location = new Point(14, 104),
+                Size = new Size(518, 24),
                 ReadOnly = true,
                 BackColor = Color.FromArgb(248, 250, 252)
             };
@@ -365,8 +419,8 @@ namespace StreloReminder.Forms
             {
                 Text = "Скопировать код для телефона",
                 Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
-                Location = new Point(14, 110),
-                Size = new Size(232, 32),
+                Location = new Point(14, 136),
+                Size = new Size(252, 34),
                 Padding = new Padding(0),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(219, 234, 254),
@@ -380,8 +434,8 @@ namespace StreloReminder.Forms
             {
                 Text = "Вставить код из буфера обмена",
                 Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
-                Location = new Point(256, 110),
-                Size = new Size(236, 32),
+                Location = new Point(276, 136),
+                Size = new Size(256, 34),
                 Padding = new Padding(0),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(226, 232, 240),
@@ -393,24 +447,28 @@ namespace StreloReminder.Forms
 
             Label lblQrNote = new Label
             {
-                Text = "QR-код содержит одновременно настройки Облака и локальный Wi-Fi IP вашего ПК!",
+                Text = "QR-код содержит одновременно настройки Облака, интервал и локальный Wi-Fi IP вашего ПК!",
                 Font = new Font("Segoe UI", 8f, FontStyle.Regular),
                 ForeColor = Color.FromArgb(100, 116, 139),
-                Location = new Point(14, 152),
+                Location = new Point(14, 176),
                 AutoSize = true
             };
 
             _picQrCode = new PictureBox
             {
-                Location = new Point(512, 20),
-                Size = new Size(154, 154),
+                Location = new Point(554, 22),
+                Size = new Size(172, 172),
+                Padding = new Padding(4),
                 BackColor = Color.White,
                 BorderStyle = BorderStyle.FixedSingle,
-                SizeMode = PictureBoxSizeMode.CenterImage
+                SizeMode = PictureBoxSizeMode.Zoom
             };
 
             grpPairing.Controls.Add(lblInterval);
-            grpPairing.Controls.Add(_numSyncInterval);
+            grpPairing.Controls.Add(_cmbSyncPreset);
+            grpPairing.Controls.Add(lblCustomVal);
+            grpPairing.Controls.Add(_numSyncValue);
+            grpPairing.Controls.Add(_cmbSyncUnit);
             grpPairing.Controls.Add(lblCodeHint);
             grpPairing.Controls.Add(_txtConnectionCode);
             grpPairing.Controls.Add(btnCopyCode);
@@ -423,8 +481,8 @@ namespace StreloReminder.Forms
                 Text = "Готово к настройке.",
                 Font = new Font("Segoe UI", 8.75f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(71, 85, 105),
-                Location = new Point(18, 538),
-                Size = new Size(684, 22),
+                Location = new Point(18, 566),
+                Size = new Size(744, 22),
                 AutoEllipsis = true
             };
 
@@ -432,8 +490,8 @@ namespace StreloReminder.Forms
             {
                 Text = "Проверить и синхронизировать сейчас",
                 Font = new Font("Segoe UI", 9f, FontStyle.Bold),
-                Location = new Point(18, 566),
-                Size = new Size(290, 40),
+                Location = new Point(18, 594),
+                Size = new Size(310, 42),
                 Padding = new Padding(0),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(219, 234, 254),
@@ -447,8 +505,8 @@ namespace StreloReminder.Forms
             {
                 Text = "Сохранить настройки",
                 Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
-                Location = new Point(320, 566),
-                Size = new Size(260, 40),
+                Location = new Point(340, 594),
+                Size = new Size(288, 42),
                 Padding = new Padding(0),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(22, 163, 74),
@@ -462,8 +520,8 @@ namespace StreloReminder.Forms
             {
                 Text = "Закрыть",
                 Font = new Font("Segoe UI", 9f, FontStyle.Regular),
-                Location = new Point(592, 566),
-                Size = new Size(110, 40),
+                Location = new Point(640, 594),
+                Size = new Size(122, 42),
                 Padding = new Padding(0),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(226, 232, 240),
@@ -487,13 +545,102 @@ namespace StreloReminder.Forms
             Controls.Add(btnClose);
         }
 
+        private void SetSyncIntervalControlsFromSeconds(int totalSeconds)
+        {
+            if (totalSeconds < 3) totalSeconds = 15;
+            _updatingSyncControls = true;
+            try
+            {
+                int matchedPresetIdx = PresetSeconds.Length - 1;
+                for (int i = 0; i < PresetSeconds.Length - 1; i++)
+                {
+                    if (PresetSeconds[i] == totalSeconds)
+                    {
+                        matchedPresetIdx = i;
+                        break;
+                    }
+                }
+                _cmbSyncPreset.SelectedIndex = matchedPresetIdx;
+
+                if (totalSeconds % 3600 == 0 && totalSeconds >= 3600)
+                {
+                    _cmbSyncUnit.SelectedIndex = 2; // ч.
+                    _numSyncValue.Value = Math.Max(1, Math.Min(3600, totalSeconds / 3600));
+                }
+                else if (totalSeconds % 60 == 0 && totalSeconds >= 60)
+                {
+                    _cmbSyncUnit.SelectedIndex = 1; // мин.
+                    _numSyncValue.Value = Math.Max(1, Math.Min(3600, totalSeconds / 60));
+                }
+                else
+                {
+                    _cmbSyncUnit.SelectedIndex = 0; // сек.
+                    _numSyncValue.Value = Math.Max(3, Math.Min(3600, totalSeconds));
+                }
+            }
+            finally
+            {
+                _updatingSyncControls = false;
+            }
+        }
+
+        private int GetSelectedSyncIntervalSeconds()
+        {
+            int val = (int)_numSyncValue.Value;
+            int unit = _cmbSyncUnit.SelectedIndex;
+            int seconds = val;
+            if (unit == 1) seconds = val * 60;
+            else if (unit == 2) seconds = val * 3600;
+            return Math.Max(3, Math.Min(86400, seconds));
+        }
+
+        private void OnSyncPresetChanged(object sender, EventArgs e)
+        {
+            if (_updatingSyncControls) return;
+            int idx = _cmbSyncPreset.SelectedIndex;
+            if (idx >= 0 && idx < PresetSeconds.Length - 1)
+            {
+                SetSyncIntervalControlsFromSeconds(PresetSeconds[idx]);
+                UpdateConnectionCodeAndQrPreview();
+            }
+        }
+
+        private void OnCustomSyncValueOrUnitChanged(object sender, EventArgs e)
+        {
+            if (_updatingSyncControls) return;
+            int totalSec = GetSelectedSyncIntervalSeconds();
+            _updatingSyncControls = true;
+            try
+            {
+                if (_cmbSyncUnit.SelectedIndex == 0 && _numSyncValue.Value < 3)
+                {
+                    _numSyncValue.Value = 3;
+                    totalSec = 3;
+                }
+                int matchedPresetIdx = PresetSeconds.Length - 1;
+                for (int i = 0; i < PresetSeconds.Length - 1; i++)
+                {
+                    if (PresetSeconds[i] == totalSec)
+                    {
+                        matchedPresetIdx = i;
+                        break;
+                    }
+                }
+                _cmbSyncPreset.SelectedIndex = matchedPresetIdx;
+            }
+            finally
+            {
+                _updatingSyncControls = false;
+            }
+            UpdateConnectionCodeAndQrPreview();
+        }
+
         private void LoadConfigToControls()
         {
             int providerIdx = (int)_config.ProviderType;
             if (providerIdx < 0 || providerIdx > 3) providerIdx = 3;
             if (_config.ProviderType == CloudProviderType.Disabled && !_config.IsCloudConfigured())
             {
-                // По умолчанию предлагаем самый удобный режим «Облако в 1 клик»
                 providerIdx = (int)CloudProviderType.OneClickCloud;
             }
 
@@ -503,7 +650,7 @@ namespace StreloReminder.Forms
             _txtGistId.Text = _config.GistId ?? string.Empty;
             _txtCustomUrl.Text = _config.CustomCloudUrl ?? string.Empty;
             _chkLanWifiEnabled.Checked = _config.LanWifiSyncEnabled;
-            _numSyncInterval.Value = Math.Max(10, Math.Min(3600, _config.AutoSyncIntervalSeconds <= 0 ? 15 : _config.AutoSyncIntervalSeconds));
+            SetSyncIntervalControlsFromSeconds(_config.AutoSyncIntervalSeconds <= 0 ? 15 : _config.AutoSyncIntervalSeconds);
 
             OnProviderChanged(this, EventArgs.Empty);
             UpdateConnectionCodeAndQrPreview();
@@ -519,7 +666,7 @@ namespace StreloReminder.Forms
             target.LanWifiSyncEnabled = _chkLanWifiEnabled.Checked;
             target.LanPcIp = LanSyncService.GetPrimaryLanIp();
             target.LanPort = LanSyncService.DefaultHttpPort;
-            target.AutoSyncIntervalSeconds = (int)_numSyncInterval.Value;
+            target.AutoSyncIntervalSeconds = GetSelectedSyncIntervalSeconds();
         }
 
         private void OnProviderChanged(object sender, EventArgs e)
@@ -551,7 +698,7 @@ namespace StreloReminder.Forms
             try
             {
                 Image oldImg = _picQrCode.Image;
-                _picQrCode.Image = QrCodeGenerator.GenerateQrBitmap(qrPayload, 148);
+                _picQrCode.Image = QrCodeGenerator.GenerateQrBitmap(qrPayload, 160);
                 if (oldImg != null)
                 {
                     oldImg.Dispose();
@@ -682,7 +829,7 @@ namespace StreloReminder.Forms
                 _txtGistId.Text = parsed.GistId ?? string.Empty;
                 _txtCustomUrl.Text = parsed.CustomCloudUrl ?? string.Empty;
                 _chkLanWifiEnabled.Checked = parsed.LanWifiSyncEnabled;
-                _numSyncInterval.Value = Math.Max(10, Math.Min(3600, parsed.AutoSyncIntervalSeconds <= 0 ? 15 : parsed.AutoSyncIntervalSeconds));
+                SetSyncIntervalControlsFromSeconds(parsed.AutoSyncIntervalSeconds <= 0 ? 15 : parsed.AutoSyncIntervalSeconds);
                 UpdateConnectionCodeAndQrPreview();
 
                 _lblStatus.ForeColor = Color.FromArgb(22, 163, 74);

@@ -38,15 +38,17 @@ StreloReminder/
 ├── android/                        # Нативное мобильное приложение для Android (Java, minSdk 24, targetSdk 34)
 │   ├── settings.gradle, build.gradle, gradle.properties
 │   └── app/
-│       ├── build.gradle
+│       ├── build.gradle            # Конфигурация сборки с постоянной подписью APK (signingConfigs.release -> strelo-release.p12)
+│       ├── strelo-release.p12      # Постоянный ключ подписи APK (RSA-2048, alias strelo), чтобы обновления ставились поверх
 │       └── src/main/
 │           ├── AndroidManifest.xml
 │           ├── res/drawable/ic_bell.xml
 │           └── java/com/strelo/reminder/
 │               ├── MainActivity.java           # Главный экран Android: список, редактор 6 единиц времени, облако, Wi-Fi, обновления
-│               ├── ReminderAlertActivity.java  # Всплывающее окно уведомления на Android (звук, вибрация, Snooze)
-│               ├── AlarmScheduler.java         # Планировщик точных будильников AlarmManager + NotificationChannel
-│               ├── ReminderAlarmReceiver.java  # BroadcastReceiver срабатывания будильников и BOOT_COMPLETED
+│               ├── OverlayAlertManager.java    # Реальное плавающее окно поверх всех приложений (TYPE_APPLICATION_OVERLAY)
+│               ├── ReminderAlertActivity.java  # Полноэкранное всплывающее окно уведомления на Android (звук, вибрация, Snooze)
+│               ├── AlarmScheduler.java         # Планировщик точных будильников AlarmManager + канал strelo_alerts_popup_v2
+│               ├── ReminderAlarmReceiver.java  # BroadcastReceiver срабатывания будильников, BOOT_COMPLETED и MY_PACKAGE_REPLACED
 │               ├── ReminderItem.java           # Модель напоминания (100% совместимая по JSON с Windows ReminderItem.cs)
 │               ├── CloudSyncConfig.java        # Настройки Облака 1-клик / Gist / URL + Wi-Fi LAN и парсер strelo://sync
 │               ├── CloudSyncService.java       # Гибридная синхронизация Android ↔ Wi-Fi ПК + Облако

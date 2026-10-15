@@ -23,6 +23,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
@@ -81,6 +82,7 @@ public class MainActivity extends Activity {
     private TextView tvCloudStatus;
     private TextView tvSummary;
     private Button btnCheckUpdate;
+    private Button btnOverlayPermission;
     private CheckBox cbDoNotDisturb;
     private LinearLayout listContainer;
 
@@ -137,12 +139,45 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        updateOverlayPermissionBanner();
         reloadFromStorage();
         mainHandler.removeCallbacks(tickRunnable);
         mainHandler.post(tickRunnable);
         if (cloudConfig != null && cloudConfig.isConfigured()) {
             triggerBackgroundSync(false);
         }
+    }
+
+    private void updateOverlayPermissionBanner() {
+        if (btnOverlayPermission == null) return;
+        boolean granted = OverlayAlertManager.canDrawOverlays(this);
+        btnOverlayPermission.setVisibility(granted ? View.GONE : View.VISIBLE);
+    }
+
+    private void requestOverlayPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            try {
+                Intent intent = new Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:" + getPackageName())
+                );
+                startActivity(intent);
+                Toast.makeText(
+                        this,
+                        "Включите тумблер «Поверх других окон» для Strelo Напоминалка",
+                        Toast.LENGTH_LONG
+                ).show();
+                return;
+            } catch (Exception ignored) {
+                try {
+                    startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION));
+                    return;
+                } catch (Exception ignored2) {
+                }
+            }
+        }
+        Toast.makeText(this, "✓ Показ уведомлений поверх других окон уже включён!", Toast.LENGTH_SHORT).show();
+        updateOverlayPermissionBanner();
     }
 
     @Override
@@ -289,6 +324,35 @@ public class MainActivity extends Activity {
         actionPanel.setOrientation(LinearLayout.VERTICAL);
         actionPanel.setPadding(dp(12), dp(10), dp(12), dp(6));
 
+        // Баннер разрешения «Поверх других окон» (отображается только если разрешение ещё не выдано)
+        btnOverlayPermission = createButton(
+                "⚠️ Включить всплытие ПОВЕРХ ДРУГИХ ОКОН (нажмите здесь)",
+                "#FEF3C7",
+                "#92400E"
+        );
+        btnOverlayPermission.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+        btnOverlayPermission.setMinHeight(dp(42));
+        btnOverlayPermission.setPadding(dp(10), dp(8), dp(10), dp(8));
+        GradientDrawable ovBg = new GradientDrawable();
+        ovBg.setColor(Color.parseColor("#FEF3C7"));
+        ovBg.setCornerRadius(dp(8));
+        ovBg.setStroke(dp(1), Color.parseColor("#F59E0B"));
+        btnOverlayPermission.setBackground(ovBg);
+        LinearLayout.LayoutParams ovLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        ovLp.bottomMargin = dp(8);
+        btnOverlayPermission.setLayoutParams(ovLp);
+        btnOverlayPermission.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                requestOverlayPermission();
+            }
+        });
+        actionPanel.addView(btnOverlayPermission);
+        updateOverlayPermissionBanner();
+
         // Ряд 1: Крупная кнопка «+ Новое напоминание» во всю ширину экрана
         Button btnAdd = createButton("+ Новое напоминание", "#2563EB", "#FFFFFF");
         btnAdd.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
@@ -331,8 +395,16 @@ public class MainActivity extends Activity {
         btnTest.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                Intent i = new Intent(MainActivity.this, ReminderAlertActivity.class);
-                startActivity(i);
+                ReminderItem sample = new ReminderItem();
+                sample.title = "Пример напоминания: Сделать перерыв!";
+                sample.notes = "Это демонстрационное всплывающее окно Strelo поверх всех приложений.";
+                sample.priorityValue = ReminderItem.PRIORITY_HIGH;
+                if (OverlayAlertManager.canDrawOverlays(MainActivity.this)) {
+                    OverlayAlertManager.showOverlayPopup(MainActivity.this, sample);
+                } else {
+                    Intent i = new Intent(MainActivity.this, ReminderAlertActivity.class);
+                    startActivity(i);
+                }
             }
         });
 
@@ -435,7 +507,7 @@ public class MainActivity extends Activity {
         // Автосинхронизация с облаком
         if (cloudConfig != null && cloudConfig.isConfigured() && !isSyncInProgress) {
             secondsSinceLastSync++;
-            int interval = Math.max(10, cloudConfig.autoSyncIntervalSeconds);
+            int interval = Math.max(3, cloudConfig.autoSyncIntervalSeconds);
             if (secondsSinceLastSync >= interval) {
                 secondsSinceLastSync = 0;
                 triggerBackgroundSync(false);
@@ -1407,18 +1479,122 @@ public class MainActivity extends Activity {
         layout.addView(etCustomUrl);
 
         TextView lblInterval = new TextView(this);
-        lblInterval.setText("Интервал автосинхронизации (сек.):");
-        lblInterval.setPadding(0, dp(8), 0, 0);
+        lblInterval.setText("⏱ Время синхронизации между устройствами:");
+        lblInterval.setTypeface(Typeface.DEFAULT_BOLD);
+        lblInterval.setTextColor(Color.parseColor("#0F172A"));
+        lblInterval.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f);
+        lblInterval.setPadding(0, dp(10), 0, dp(4));
         layout.addView(lblInterval);
 
-        final EditText etInterval = new EditText(this);
-        etInterval.setInputType(InputType.TYPE_CLASS_NUMBER);
-        etInterval.setText(String.valueOf(cloudConfig.autoSyncIntervalSeconds));
-        layout.addView(etInterval);
+        final int[] presetSecs = new int[]{5, 10, 15, 30, 60, 300, 900, 3600, -1};
+        String[] presetLabels = new String[]{
+                "Каждые 5 секунд (мгновенно)",
+                "Каждые 10 секунд",
+                "Каждые 15 секунд (рекомендуется)",
+                "Каждые 30 секунд",
+                "Каждую 1 минуту",
+                "Каждые 5 минут",
+                "Каждые 15 минут",
+                "Каждый 1 час",
+                "Свой интервал..."
+        };
+        final Spinner spIntervalPreset = new Spinner(this);
+        spIntervalPreset.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, presetLabels));
+        layout.addView(spIntervalPreset);
 
-        // Отображение QR-кода текущих настроек
+        LinearLayout customIntervalRow = new LinearLayout(this);
+        customIntervalRow.setOrientation(LinearLayout.HORIZONTAL);
+        customIntervalRow.setGravity(Gravity.CENTER_VERTICAL);
+        customIntervalRow.setPadding(0, dp(4), 0, 0);
+
+        TextView lblEvery = new TextView(this);
+        lblEvery.setText("Или свой: каждые ");
+        lblEvery.setTextColor(Color.parseColor("#475569"));
+        lblEvery.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+
+        final EditText etIntervalVal = new EditText(this);
+        etIntervalVal.setInputType(InputType.TYPE_CLASS_NUMBER);
+        etIntervalVal.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams intValLp = new LinearLayout.LayoutParams(dp(70), ViewGroup.LayoutParams.WRAP_CONTENT);
+        etIntervalVal.setLayoutParams(intValLp);
+
+        final Spinner spIntervalUnit = new Spinner(this);
+        spIntervalUnit.setAdapter(new ArrayAdapter<>(
+                this,
+                android.R.layout.simple_spinner_dropdown_item,
+                new String[]{"сек.", "мин.", "ч."}
+        ));
+        LinearLayout.LayoutParams intUnitLp = new LinearLayout.LayoutParams(
+                0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f
+        );
+        intUnitLp.leftMargin = dp(6);
+        spIntervalUnit.setLayoutParams(intUnitLp);
+
+        customIntervalRow.addView(lblEvery);
+        customIntervalRow.addView(etIntervalVal);
+        customIntervalRow.addView(spIntervalUnit);
+        layout.addView(customIntervalRow);
+
+        final boolean[] updatingIntervalUi = new boolean[]{false};
+        final Runnable applyTotalSecondsToUi = new Runnable() {
+            @Override
+            public void run() {
+                // Заполняется ниже через helper
+            }
+        };
+
+        int initSec = Math.max(3, cloudConfig.autoSyncIntervalSeconds);
+        int matchedPresetIdx = 8;
+        for (int i = 0; i < presetSecs.length - 1; i++) {
+            if (presetSecs[i] == initSec) {
+                matchedPresetIdx = i;
+                break;
+            }
+        }
+        updatingIntervalUi[0] = true;
+        spIntervalPreset.setSelection(matchedPresetIdx);
+        if (initSec % 3600 == 0 && initSec >= 3600) {
+            spIntervalUnit.setSelection(2);
+            etIntervalVal.setText(String.valueOf(initSec / 3600));
+        } else if (initSec % 60 == 0 && initSec >= 60) {
+            spIntervalUnit.setSelection(1);
+            etIntervalVal.setText(String.valueOf(initSec / 60));
+        } else {
+            spIntervalUnit.setSelection(0);
+            etIntervalVal.setText(String.valueOf(initSec));
+        }
+        updatingIntervalUi[0] = false;
+
+        spIntervalPreset.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                if (updatingIntervalUi[0]) return;
+                if (position >= 0 && position < presetSecs.length - 1) {
+                    int sec = presetSecs[position];
+                    updatingIntervalUi[0] = true;
+                    if (sec % 3600 == 0 && sec >= 3600) {
+                        spIntervalUnit.setSelection(2);
+                        etIntervalVal.setText(String.valueOf(sec / 3600));
+                    } else if (sec % 60 == 0 && sec >= 60) {
+                        spIntervalUnit.setSelection(1);
+                        etIntervalVal.setText(String.valueOf(sec / 60));
+                    } else {
+                        spIntervalUnit.setSelection(0);
+                        etIntervalVal.setText(String.valueOf(sec));
+                    }
+                    updatingIntervalUi[0] = false;
+                }
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {}
+        });
+
+        // Отображение QR-кода текущих настроек (компактная ссылка strelo://sync?v=1&... для лёгкого чтения камерой)
         final ImageView ivQr = new ImageView(this);
-        LinearLayout.LayoutParams qrLp = new LinearLayout.LayoutParams(dp(150), dp(150));
+        LinearLayout.LayoutParams qrLp = new LinearLayout.LayoutParams(dp(170), dp(170));
         qrLp.gravity = Gravity.CENTER_HORIZONTAL;
         qrLp.topMargin = dp(10);
         ivQr.setLayoutParams(qrLp);
@@ -1436,9 +1612,10 @@ public class MainActivity extends Activity {
                     temp.customCloudUrl = etCustomUrl.getText().toString().trim();
                     temp.lanWifiSyncEnabled = cbLanWifi.isChecked();
                     temp.lanPcIp = etLanIp.getText().toString().trim();
+                    temp.autoSyncIntervalSeconds = computeIntervalSecondsFromUi(etIntervalVal, spIntervalUnit);
                     String payload = temp.toQrDeepLink();
                     if (payload.isEmpty()) payload = "STRELO";
-                    ivQr.setImageBitmap(QrCodeGenerator.generateQrBitmap(payload, dp(150)));
+                    ivQr.setImageBitmap(QrCodeGenerator.generateQrBitmap(payload, dp(170)));
                 } catch (Exception ignored) {
                 }
             }
@@ -1555,7 +1732,27 @@ public class MainActivity extends Activity {
                         etCustomUrl.setText(parsed.customCloudUrl);
                         cbLanWifi.setChecked(parsed.lanWifiSyncEnabled);
                         etLanIp.setText(parsed.lanPcIp);
-                        etInterval.setText(String.valueOf(parsed.autoSyncIntervalSeconds));
+                        int sec = Math.max(3, parsed.autoSyncIntervalSeconds);
+                        updatingIntervalUi[0] = true;
+                        int mIdx = 8;
+                        for (int i = 0; i < presetSecs.length - 1; i++) {
+                            if (presetSecs[i] == sec) {
+                                mIdx = i;
+                                break;
+                            }
+                        }
+                        spIntervalPreset.setSelection(mIdx);
+                        if (sec % 3600 == 0 && sec >= 3600) {
+                            spIntervalUnit.setSelection(2);
+                            etIntervalVal.setText(String.valueOf(sec / 3600));
+                        } else if (sec % 60 == 0 && sec >= 60) {
+                            spIntervalUnit.setSelection(1);
+                            etIntervalVal.setText(String.valueOf(sec / 60));
+                        } else {
+                            spIntervalUnit.setSelection(0);
+                            etIntervalVal.setText(String.valueOf(sec));
+                        }
+                        updatingIntervalUi[0] = false;
                         updateQrPreview.run();
                         Toast.makeText(MainActivity.this, "✓ Код подключения успешно загружен!", Toast.LENGTH_SHORT).show();
                         return;
@@ -1576,10 +1773,7 @@ public class MainActivity extends Activity {
                 temp.customCloudUrl = etCustomUrl.getText().toString().trim();
                 temp.lanWifiSyncEnabled = cbLanWifi.isChecked();
                 temp.lanPcIp = etLanIp.getText().toString().trim();
-                try {
-                    temp.autoSyncIntervalSeconds = Math.max(10, Integer.parseInt(etInterval.getText().toString().trim()));
-                } catch (Exception ignored) {
-                }
+                temp.autoSyncIntervalSeconds = computeIntervalSecondsFromUi(etIntervalVal, spIntervalUnit);
                 ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                 if (cm != null) {
                     cm.setPrimaryClip(ClipData.newPlainText("StreloSyncCode", temp.toConnectionCode()));
@@ -1635,11 +1829,7 @@ public class MainActivity extends Activity {
                         cloudConfig.customCloudUrl = etCustomUrl.getText().toString().trim();
                         cloudConfig.lanWifiSyncEnabled = cbLanWifi.isChecked();
                         cloudConfig.lanPcIp = etLanIp.getText().toString().trim();
-                        try {
-                            cloudConfig.autoSyncIntervalSeconds = Math.max(10, Integer.parseInt(etInterval.getText().toString().trim()));
-                        } catch (Exception e) {
-                            cloudConfig.autoSyncIntervalSeconds = 15;
-                        }
+                        cloudConfig.autoSyncIntervalSeconds = computeIntervalSecondsFromUi(etIntervalVal, spIntervalUnit);
                         StorageService.saveCloudConfig(MainActivity.this, cloudConfig);
                         updateCloudStatusHeader();
                         if (cloudConfig.isConfigured()) {
@@ -1649,6 +1839,29 @@ public class MainActivity extends Activity {
                 })
                 .setNegativeButton("Отмена", null)
                 .show();
+    }
+
+    private static int computeIntervalSecondsFromUi(EditText etVal, Spinner spUnit) {
+        int val = 15;
+        try {
+            val = Math.max(1, Integer.parseInt(etVal.getText().toString().trim()));
+        } catch (Exception ignored) {
+        }
+        int unitIdx = spUnit != null ? spUnit.getSelectedItemPosition() : 0;
+        int total = val;
+        if (unitIdx == 1) total = val * 60;
+        else if (unitIdx == 2) total = val * 3600;
+        return Math.max(3, Math.min(86400, total));
+    }
+
+    private static String formatSyncIntervalLabel(int sec) {
+        if (sec >= 3600 && sec % 3600 == 0) {
+            return (sec / 3600) + " ч.";
+        }
+        if (sec >= 60 && sec % 60 == 0) {
+            return (sec / 60) + " мин.";
+        }
+        return sec + " сек.";
     }
 
     private void updateCloudStatusHeader() {
@@ -1680,6 +1893,7 @@ public class MainActivity extends Activity {
             if (i > 0) sb.append(" + ");
             sb.append(modes.get(i));
         }
+        sb.append(" • каждые ").append(formatSyncIntervalLabel(Math.max(3, cloudConfig.autoSyncIntervalSeconds)));
         tvCloudStatus.setText(sb.toString());
         tvCloudStatus.setTextColor(Color.parseColor("#A7F3D0"));
     }

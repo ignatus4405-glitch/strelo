@@ -4,6 +4,46 @@
 
 ---
 
+## [2026-10-15] — Исправление размера окна синхронизации, выбор времени синхронизации, постоянный ключ подписи Android APK и всплывающее окно поверх всех приложений на Android
+
+### Что сделано
+1. **Исправлены размеры окна синхронизации и убрано обрезание текста (`Forms/CloudSyncForm.cs`, `Models/CloudSyncConfig.cs`, `CloudSyncConfig.java`)**:
+   - Размер окна `Forms/CloudSyncForm.cs` увеличен с `690x610` до **`780x650`**, а ширина внутренних контейнеров увеличена с `654px` до **`744px`**.
+   - Надпись с локальным IP-адресом в блоке Wi-Fi (`_lblLanIpInfo`) переведена с `AutoSize = true` на фиксированный двухстрочный блок `Size(714, 40)` (`AutoSize = false`), благодаря чему текст `«Локальный Wi-Fi сервер ПК активен. IP этого компьютера: ...»` больше никогда не уходит за правую границу рамки.
+   - Увеличен размер QR-кода (`172x172` на ПК, `170dp` на Android), а формат deep-link для QR-кода оптимизирован в компактный вид `strelo://sync?v=1&p=...&r=...&w=...&ip=...&i=...` без двойного Base64-кодирования — модули QR-кода стали крупными и мгновенно считываются любой камерой.
+2. **Добавлен выбор времени (интервала) синхронизации между устройствами (`Forms/CloudSyncForm.cs`, `Forms/MainForm.cs`, `MainActivity.java`)**:
+   - На **Windows (`Forms/CloudSyncForm.cs`)** и **Android (`MainActivity.java`)** добавлен удобный выбор периода синхронизации:
+     - Выпадающий список готовых пресетов: **«Каждые 5 секунд (мгновенно)»**, **«Каждые 10 секунд»**, **«Каждые 15 секунд (рекомендуется)»**, **«Каждые 30 секунд»**, **«Каждую 1 минуту»**, **«Каждые 5 минут»**, **«Каждые 15 минут»**, **«Каждый 1 час»**, **«Свой интервал...»**.
+     - Поле точной настройки своего интервала (число + выбор единицы: **`сек.`**, **`мин.`**, **`ч.`**) с поддержкой интервалов от **3 секунд** до **24 часов**.
+   - Выбранный интервал синхронизации автоматически передаётся на второе устройство в составе QR-кода и кода подключения `STRELO1:...` и отображается в строке состояния обоих приложений.
+3. **Постоянный ключ подписи Android APK для обновления поверх (`android/app/strelo-release.p12`, `.gitattributes`, `android/app/build.gradle`)**:
+   - Сгенерирован и зафиксирован в репозитории постоянный криптографический ключ `android/app/strelo-release.p12` (PKCS12, RSA-2048, срок действия 10 000 дней, alias `strelo`).
+   - В `android/app/build.gradle` настроен блок `signingConfigs.release`, который применяется и к `release`, и к `debug` сборкам. Теперь любой новый `StreloReminder-Android.apk` из GitHub Releases устанавливается поверх уже установленного приложения с полным сохранением всех напоминаний и настроек (без ошибки `INSTALL_FAILED_UPDATE_INCOMPATIBLE`).
+   - В `AndroidManifest.xml` и `ReminderAlarmReceiver.java` добавлена обработка системного события `ACTION_MY_PACKAGE_REPLACED` для автоматического перепланирования будильников сразу после установки обновления поверх.
+4. **Реальное всплывающее окно поверх всех остальных приложений на Android (`OverlayAlertManager.java`, `AlarmScheduler.java`, `ReminderAlarmReceiver.java`, `MainActivity.java`, `AndroidManifest.xml`)**:
+   - Создан класс `OverlayAlertManager.java`, использующий системный сервис `WindowManager` с типом окна `WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY` (`SYSTEM_ALERT_WINDOW`) и флагами `FLAG_KEEP_SCREEN_ON | FLAG_SHOW_WHEN_LOCKED | FLAG_TURN_SCREEN_ON`.
+   - При срабатывании напоминания окно с текстом задачи, звуковым сигналом и кнопками **«+30 сек»**, **«+5 мин»**, **«+15 мин»**, **«+1 час»**, **«✓ Понятно (Выполнено)»** и **«Ещё...»** всплывает прямо поверх любого открытого приложения на телефоне (браузер, мессенджер, видео, игры).
+   - В `MainActivity.java` добавлен заметный баннер в 1 клик **«⚠️ Включить всплытие ПОВЕРХ ДРУГИХ ОКОН (нажмите здесь)»**, который открывает системный экран разрешения `Settings.ACTION_MANAGE_OVERLAY_PERMISSION` для пакета `com.strelo.reminder` и автоматически скрывается после включения.
+   - Обновлён канал уведомлений `strelo_alerts_popup_v2` в `AlarmScheduler.java` (`IMPORTANCE_HIGH`, `CATEGORY_ALARM`, `USAGE_ALARM`, `WakeLock` для включения экрана и быстрые кнопки `✓ Выполнено` / `+10 мин` прямо в шторке).
+
+### Затронутые файлы
+- `android/app/strelo-release.p12` (создан — постоянный ключ подписи APK)
+- `.gitattributes` (обновлён — `*.p12 binary`)
+- `android/app/build.gradle` (обновлён — `signingConfigs.release`)
+- `android/app/src/main/AndroidManifest.xml` (обновлён — `SYSTEM_ALERT_WINDOW`, `WAKE_LOCK`, `VIBRATE`, `MY_PACKAGE_REPLACED`)
+- `android/app/src/main/java/com/strelo/reminder/OverlayAlertManager.java` (создан)
+- `android/app/src/main/java/com/strelo/reminder/AlarmScheduler.java` (обновлён)
+- `android/app/src/main/java/com/strelo/reminder/ReminderAlarmReceiver.java` (обновлён)
+- `android/app/src/main/java/com/strelo/reminder/ReminderAlertActivity.java` (обновлён)
+- `android/app/src/main/java/com/strelo/reminder/MainActivity.java` (обновлён)
+- `android/app/src/main/java/com/strelo/reminder/CloudSyncConfig.java` (обновлён)
+- `Models/CloudSyncConfig.cs` (обновлён)
+- `Forms/CloudSyncForm.cs` (обновлён)
+- `Forms/MainForm.cs` (обновлён)
+- `AGENTS.md`, `README.md`, `CHANGELOG.md` (обновлены)
+
+---
+
 ## [2026-10-15] — Реализация «Облака в 1 клик + QR-код» (без токенов) и «Локальной синхронизации по Wi-Fi с автопоиском ПК»
 
 ### Что сделано

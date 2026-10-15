@@ -68,6 +68,7 @@ public class ReminderAlertActivity extends Activity {
             currentReminder.notes = "Это демонстрационное всплывающее окно уведомления Strelo на Android.";
         }
 
+        OverlayAlertManager.dismissOverlay();
         buildAlertUi();
         playAlertSoundAndVibrate();
     }

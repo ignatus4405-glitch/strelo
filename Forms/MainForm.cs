@@ -914,10 +914,10 @@ namespace StreloReminder.Forms
             UpdateListViewCountdowns(now);
 
             // Фоновая автосинхронизация с облаком (Android <-> ПК)
-            if (_cloudConfig != null && _cloudConfig.IsConfigured() && !_isSyncInProgress)
+            if (_cloudConfig != null && _cloudConfig.IsCloudConfigured() && !_isSyncInProgress)
             {
                 _secondsSinceLastSync++;
-                int interval = Math.Max(10, _cloudConfig.AutoSyncIntervalSeconds);
+                int interval = Math.Max(3, _cloudConfig.AutoSyncIntervalSeconds);
                 if (_secondsSinceLastSync >= interval)
                 {
                     _secondsSinceLastSync = 0;

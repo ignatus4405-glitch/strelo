@@ -137,8 +137,32 @@ namespace StreloReminder.Models
             }
         }
 
+        /// <summary>
+        /// Формирует компактную ссылку для QR-кода, чтобы QR-матрица имела минимальный размер и легко читалась камерой.
+        /// </summary>
         public string ToQrDeepLink()
         {
+            if (ProviderType == CloudProviderType.OneClickCloud || ProviderType == CloudProviderType.Disabled)
+            {
+                StringBuilder sb = new StringBuilder("strelo://sync?v=1");
+                sb.Append("&p=").Append(ProviderTypeValue);
+                if (!string.IsNullOrWhiteSpace(OneClickRoomId))
+                {
+                    sb.Append("&r=").Append(Uri.EscapeDataString(OneClickRoomId.Trim()));
+                }
+                sb.Append("&w=").Append(LanWifiSyncEnabled ? "1" : "0");
+                if (!string.IsNullOrWhiteSpace(LanPcIp))
+                {
+                    sb.Append("&ip=").Append(Uri.EscapeDataString(LanPcIp.Trim()));
+                }
+                if (LanPort > 0 && LanPort != 45892)
+                {
+                    sb.Append("&pt=").Append(LanPort);
+                }
+                sb.Append("&i=").Append(Math.Max(3, AutoSyncIntervalSeconds));
+                return sb.ToString();
+            }
+
             string code = ToConnectionCode();
             if (string.IsNullOrEmpty(code))
                 return string.Empty;
@@ -151,6 +175,61 @@ namespace StreloReminder.Models
                 return null;
 
             string trimmed = code.Trim();
+
+            // Компактный формат QR-кода strelo://sync?v=1&p=...
+            if (trimmed.StartsWith("strelo://sync?", StringComparison.OrdinalIgnoreCase) &&
+                trimmed.IndexOf("v=1", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                try
+                {
+                    CloudSyncConfig cfg = new CloudSyncConfig();
+                    int qIdx = trimmed.IndexOf('?');
+                    string query = qIdx >= 0 ? trimmed.Substring(qIdx + 1) : trimmed;
+                    string[] pairs = query.Split('&');
+                    for (int i = 0; i < pairs.Length; i++)
+                    {
+                        string[] kv = pairs[i].Split(new char[] { '=' }, 2);
+                        if (kv.Length != 2) continue;
+                        string k = kv[0].Trim().ToLowerInvariant();
+                        string v = Uri.UnescapeDataString(kv[1].Trim());
+                        if (k == "p")
+                        {
+                            int pv;
+                            if (int.TryParse(v, out pv)) cfg.ProviderTypeValue = pv;
+                        }
+                        else if (k == "r")
+                        {
+                            cfg.OneClickRoomId = v;
+                            if (!string.IsNullOrEmpty(v) && !v.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                            {
+                                cfg.CustomCloudUrl = "https://jsonblob.com/api/jsonBlob/" + v;
+                            }
+                        }
+                        else if (k == "w")
+                        {
+                            cfg.LanWifiSyncEnabled = (v == "1" || string.Equals(v, "true", StringComparison.OrdinalIgnoreCase));
+                        }
+                        else if (k == "ip")
+                        {
+                            cfg.LanPcIp = v;
+                        }
+                        else if (k == "pt")
+                        {
+                            int pt;
+                            if (int.TryParse(v, out pt) && pt > 0) cfg.LanPort = pt;
+                        }
+                        else if (k == "i")
+                        {
+                            int iv;
+                            if (int.TryParse(v, out iv) && iv >= 3) cfg.AutoSyncIntervalSeconds = iv;
+                        }
+                    }
+                    return cfg;
+                }
+                catch
+                {
+                }
+            }
 
             // Если отсканирован QR-код со ссылкой strelo://sync?code=...
             int codeParamIdx = trimmed.IndexOf("code=", StringComparison.OrdinalIgnoreCase);
@@ -174,7 +253,7 @@ namespace StreloReminder.Models
                     if (parsed != null)
                     {
                         if (parsed.LanPort <= 0) parsed.LanPort = 45892;
-                        if (parsed.AutoSyncIntervalSeconds < 10) parsed.AutoSyncIntervalSeconds = 15;
+                        if (parsed.AutoSyncIntervalSeconds < 3) parsed.AutoSyncIntervalSeconds = 15;
                         return parsed;
                     }
                 }

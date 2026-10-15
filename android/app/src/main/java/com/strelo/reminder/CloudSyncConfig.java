@@ -71,7 +71,7 @@ public class CloudSyncConfig {
             obj.put("GitHubToken", gitHubToken != null ? gitHubToken : "");
             obj.put("GistId", gistId != null ? gistId : "");
             obj.put("CustomCloudUrl", customCloudUrl != null ? customCloudUrl : "");
-            obj.put("AutoSyncIntervalSeconds", autoSyncIntervalSeconds);
+            obj.put("AutoSyncIntervalSeconds", Math.max(3, autoSyncIntervalSeconds));
             obj.put("OneClickRoomId", oneClickRoomId != null ? oneClickRoomId : "");
             obj.put("LanWifiSyncEnabled", lanWifiSyncEnabled);
             obj.put("LanPcIp", lanPcIp != null ? lanPcIp : "");
@@ -88,7 +88,7 @@ public class CloudSyncConfig {
         cfg.gitHubToken = obj.optString("GitHubToken", "");
         cfg.gistId = obj.optString("GistId", "");
         cfg.customCloudUrl = obj.optString("CustomCloudUrl", "");
-        cfg.autoSyncIntervalSeconds = Math.max(10, obj.optInt("AutoSyncIntervalSeconds", 15));
+        cfg.autoSyncIntervalSeconds = Math.max(3, obj.optInt("AutoSyncIntervalSeconds", 15));
         cfg.oneClickRoomId = obj.optString("OneClickRoomId", "");
         cfg.lanWifiSyncEnabled = obj.optBoolean("LanWifiSyncEnabled", true);
         cfg.lanPcIp = obj.optString("LanPcIp", "");
@@ -108,6 +108,23 @@ public class CloudSyncConfig {
     }
 
     public String toQrDeepLink() {
+        if (providerTypeValue == PROVIDER_ONE_CLICK_CLOUD || providerTypeValue == PROVIDER_DISABLED) {
+            StringBuilder sb = new StringBuilder("strelo://sync?v=1");
+            sb.append("&p=").append(providerTypeValue);
+            if (oneClickRoomId != null && !oneClickRoomId.trim().isEmpty()) {
+                sb.append("&r=").append(Uri.encode(oneClickRoomId.trim()));
+            }
+            sb.append("&w=").append(lanWifiSyncEnabled ? "1" : "0");
+            if (lanPcIp != null && !lanPcIp.trim().isEmpty()) {
+                sb.append("&ip=").append(Uri.encode(lanPcIp.trim()));
+            }
+            if (lanPort > 0 && lanPort != 45892) {
+                sb.append("&pt=").append(lanPort);
+            }
+            sb.append("&i=").append(Math.max(3, autoSyncIntervalSeconds));
+            return sb.toString();
+        }
+
         String code = toConnectionCode();
         if (code.isEmpty()) return "";
         return DEEP_LINK_PREFIX + Uri.encode(code);
@@ -116,6 +133,33 @@ public class CloudSyncConfig {
     public static CloudSyncConfig fromConnectionCode(String code) {
         if (code == null || code.trim().isEmpty()) return null;
         String trimmed = code.trim();
+
+        // Компактный формат QR-кода strelo://sync?v=1&p=...
+        if (trimmed.toLowerCase().startsWith("strelo://sync?") && trimmed.toLowerCase().contains("v=1")) {
+            try {
+                Uri uri = Uri.parse(trimmed);
+                CloudSyncConfig cfg = new CloudSyncConfig();
+                String p = uri.getQueryParameter("p");
+                if (p != null) cfg.providerTypeValue = Integer.parseInt(p.trim());
+                String r = uri.getQueryParameter("r");
+                if (r != null) {
+                    cfg.oneClickRoomId = r.trim();
+                    if (!cfg.oneClickRoomId.isEmpty() && !cfg.oneClickRoomId.toLowerCase().startsWith("http")) {
+                        cfg.customCloudUrl = "https://jsonblob.com/api/jsonBlob/" + cfg.oneClickRoomId;
+                    }
+                }
+                String w = uri.getQueryParameter("w");
+                if (w != null) cfg.lanWifiSyncEnabled = "1".equals(w) || "true".equalsIgnoreCase(w);
+                String ip = uri.getQueryParameter("ip");
+                if (ip != null) cfg.lanPcIp = ip.trim();
+                String pt = uri.getQueryParameter("pt");
+                if (pt != null) cfg.lanPort = Integer.parseInt(pt.trim());
+                String i = uri.getQueryParameter("i");
+                if (i != null) cfg.autoSyncIntervalSeconds = Math.max(3, Integer.parseInt(i.trim()));
+                return cfg;
+            } catch (Exception ignored) {
+            }
+        }
 
         int paramIdx = trimmed.toLowerCase().indexOf("code=");
         if (paramIdx >= 0) {

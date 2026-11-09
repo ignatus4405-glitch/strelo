@@ -1,0 +1,12 @@
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.exe
+*.pdb
+*.apk
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties

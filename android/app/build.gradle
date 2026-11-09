@@ -1,0 +1,44 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.strelo.reminder'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.strelo.reminder"
+        minSdk 24
+        targetSdk 34
+        versionCode 9
+        versionName "1.4.0"
+    }
+
+    signingConfigs {
+        release {
+            storeFile file("strelo-release.p12")
+            storePassword "streloreminder"
+            keyAlias "strelo"
+            keyPassword "streloreminder"
+            storeType "PKCS12"
+            v1SigningEnabled true
+            v2SigningEnabled true
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+        debug {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
